@@ -68,3 +68,20 @@ services:
     depends_on:
       postgres:
         condition: service_started
+
+  backend:
+    build: ../backend
+    environment:
+      KESTRA_API_URL: http://kestra:8080
+      PORT: 3001
+    ports:
+      - "3001:3001"
+    depends_on:
+      - kestra
+
+  frontend:
+    build: ../frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
