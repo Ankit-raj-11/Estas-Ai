@@ -57,31 +57,9 @@ services:
             tmp-dir:
               path: /tmp/kestra-wd/tmp
           url: http://localhost:8080/
-          ai:
-            type: "gemini"
-            gemini:
-              api-key: "AIzaSyAyqnL_5Rnn_emDCimjXIjV7cJqTXMyn34"
-              model-name: gemini-2.5-flash
     ports:
       - "8080:8080"
       - "8081:8081"
     depends_on:
       postgres:
         condition: service_started
-
-  backend:
-    build: ../backend
-    environment:
-      KESTRA_API_URL: http://kestra:8080
-      PORT: 3001
-    ports:
-      - "3001:3001"
-    depends_on:
-      - kestra
-
-  frontend:
-    build: ../frontend
-    ports:
-      - "3000:80"
-    depends_on:
-      - backend

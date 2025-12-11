@@ -1,2 +1,12 @@
+node_modules/
 .env
-/node_modules
+*.log
+logs/
+/tmp/
+dist/
+coverage/
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/
