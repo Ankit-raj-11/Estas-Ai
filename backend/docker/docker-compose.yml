@@ -31,9 +31,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp/kestra-wd:/tmp/kestra-wd
     environment:
-      # --- FIX 1: Add the Secret Variable (Base64 encoded) ---
+      # --- FIX 1: Add the Secret Variable (Base64 encoded from .env file) ---
       # The token is Base64 encoded as required by Kestra
-      SECRET_GITHUB_TOKEN: Z2hwX25RVVRkbk51ckxxMm9oY21HRHRMSWg1NmtnU0h6UjJxZXpwdA==
+      SECRET_GITHUB_TOKEN: ${SECRET_GITHUB_TOKEN}
 
       KESTRA_CONFIGURATION: |
         datasources:
