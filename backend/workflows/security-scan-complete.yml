@@ -32,6 +32,7 @@ tasks:
     outputFiles:
       - "scan-results.json"
       - "branch-name.txt"
+      - "fork-owner.txt"
     commands:
       - |
         echo "=== Security Scanner Starting ==="
@@ -48,16 +49,57 @@ tasks:
         # Install Python security tools
         pip install --quiet bandit semgrep
         
+        # Extract owner and repo from URL
+        REPO_URL="{{inputs.repoUrl}}"
+        OWNER=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f1)
+        REPO=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f2)
+        
+        echo "Target Repository: $OWNER/$REPO"
+        
+        # Check if we have write access, if not, fork it
+        echo "Checking repository access..."
+        REPO_CHECK=$(curl -s -H "Authorization: token {{secret('GITHUB_TOKEN')}}" \
+          "https://api.github.com/repos/$OWNER/$REPO")
+        
+        CAN_PUSH=$(echo "$REPO_CHECK" | jq -r '.permissions.push // false')
+        
+        if [ "$CAN_PUSH" != "true" ]; then
+          echo "No write access to $OWNER/$REPO, forking repository..."
+          
+          # Get authenticated user first
+          MY_USER=$(curl -s -H "Authorization: token {{secret('GITHUB_TOKEN')}}" \
+            "https://api.github.com/user" | jq -r '.login')
+          
+          echo "Authenticated as: $MY_USER"
+          
+          # Fork the repository
+          FORK_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: token {{secret('GITHUB_TOKEN')}}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$OWNER/$REPO/forks")
+          
+          echo "Forked to: $MY_USER/$REPO"
+          echo "Waiting for fork to be ready..."
+          sleep 10
+          
+          # Clone from fork
+          CLONE_URL="https://{{secret('GITHUB_TOKEN')}}@github.com/$MY_USER/$REPO.git"
+          FORK_OWNER="$MY_USER"
+        else
+          echo "Have write access to $OWNER/$REPO, cloning directly..."
+          CLONE_URL="https://{{secret('GITHUB_TOKEN')}}@github.com/$OWNER/$REPO.git"
+          FORK_OWNER="$OWNER"
+        fi
+        
         # Clone repository
         echo "Cloning repository..."
-        REPO_URL="{{inputs.repoUrl}}"
-        REPO_URL_WITHOUT_HTTPS="${REPO_URL#https://}"
-        REPO_URL_WITH_TOKEN="https://{{secret('GITHUB_TOKEN')}}@${REPO_URL_WITHOUT_HTTPS}"
-        
-        git clone -b {{inputs.branch}} "$REPO_URL_WITH_TOKEN" repo || {
+        git clone -b {{inputs.branch}} "$CLONE_URL" repo || {
           echo "Failed to clone repository"
           exit 1
         }
+        
+        # Save fork owner for later use
+        echo "$FORK_OWNER" > fork-owner.txt
         
         cd repo
         echo "Repository cloned successfully!"
@@ -210,6 +252,7 @@ tasks:
     inputFiles:
       scan-results.json: "{{outputs.clone_scan_and_branch.outputFiles['scan-results.json']}}"
       branch-name.txt: "{{outputs.clone_scan_and_branch.outputFiles['branch-name.txt']}}"
+      fork-owner.txt: "{{outputs.clone_scan_and_branch.outputFiles['fork-owner.txt']}}"
     commands:
       - |
         echo "=== Processing Results ==="
@@ -221,9 +264,11 @@ tasks:
         MEDIUM=$(jq -r '.summary.medium // 0' scan-results.json)
         LOW=$(jq -r '.summary.low // 0' scan-results.json)
         BRANCH_NAME=$(cat branch-name.txt)
+        FORK_OWNER=$(cat fork-owner.txt)
         
         echo "Total Issues: $TOTAL"
         echo "Branch: $BRANCH_NAME"
+        echo "Fork Owner: $FORK_OWNER"
         
         PR_URL="null"
         
@@ -233,57 +278,107 @@ tasks:
           echo "=== Creating Pull Request ==="
           
           REPO_URL="{{inputs.repoUrl}}"
-          OWNER=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f1)
+          ORIGINAL_OWNER=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f1)
           REPO=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f2)
           
-          PR_RESPONSE=$(curl -s -X POST "https://api.github.com/repos/$OWNER/$REPO/pulls" \
-            -H "Authorization: token {{secret('GITHUB_TOKEN')}}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            -d "{
-              \"title\": \"🔒 Security Scan Results - $TOTAL issues found\",
-              \"body\": \"## Automated Security Scan\\n\\n**Scan ID:** {{inputs.scanId}}\\n**Total Issues:** $TOTAL\\n\\n### Summary\\n- High: $HIGH\\n- Medium: $MEDIUM\\n- Low: $LOW\\n\\n### Details\\nSee \`SECURITY_FINDINGS.md\` for complete findings.\\n\\n---\\n*Automated by Security Scanner*\",
-              \"head\": \"$BRANCH_NAME\",
-              \"base\": \"{{inputs.branch}}\"
-            }")
-          
-          PR_URL=$(echo "$PR_RESPONSE" | jq -r '.html_url // "null"')
-          
-          if [ "$PR_URL" != "null" ]; then
-            echo "✅ PR created: $PR_URL"
+          # If forked, use fork_owner:branch format for head
+          if [ "$FORK_OWNER" != "$ORIGINAL_OWNER" ]; then
+            PR_HEAD="$FORK_OWNER:$BRANCH_NAME"
+            echo "Creating PR from fork: $PR_HEAD -> $ORIGINAL_OWNER:{{inputs.branch}}"
           else
-            echo "⚠️  PR creation failed"
+            PR_HEAD="$BRANCH_NAME"
+            echo "Creating PR from same repo: $PR_HEAD -> {{inputs.branch}}"
           fi
-        fi
-        
-        # Notify backend
-        echo ""
-        echo "=== Notifying Backend ==="
-        BACKEND_URL="{{inputs.backendUrl}}"
-        BACKEND_URL=$(echo "$BACKEND_URL" | sed 's/localhost/host.docker.internal/g')
-        
-        curl -X POST "$BACKEND_URL/api/webhooks/kestra" \
-          -H "Content-Type: application/json" \
-          -d "{
-            \"executionId\": \"{{execution.id}}\",
-            \"status\": \"success\",
-            \"scanId\": \"{{inputs.scanId}}\",
-            \"outputs\": {
-              \"issuesFound\": $TOTAL,
-              \"issuesFixed\": 0,
-              \"prUrl\": \"$PR_URL\",
-              \"summary\": {
-                \"high\": $HIGH,
-                \"medium\": $MEDIUM,
-                \"low\": $LOW
-              }
-            }
-          }" && echo "✅ Backend notified" || echo "⚠️  Notification failed"
-        
-        echo ""
-        echo "=== Workflow Complete ==="
-        echo "Scan ID: {{inputs.scanId}}"
-        echo "Issues: $TOTAL"
-        echo "PR: $PR_URL"
+          
+          # Create PR body (properly escaped)
+          PR_BODY="## Automated Security Scan
+
+        **Scan ID:** {{inputs.scanId}}
+        **Total Issues:** $TOTAL
+
+        ### Summary
+        - High: $HIGH
+        - Medium: $MEDIUM  
+        - Low: $LOW
+
+        ### Details
+        See \`SECURITY_FINDINGS.md\` for complete findings.
+
+        ---
+        *Automated by Security Scanner*"
+                  
+                  # Create JSON payload using jq to properly escape
+                  PR_PAYLOAD=$(jq -n \
+                    --arg title "🔒 Security Scan Results - $TOTAL issues found" \
+                    --arg body "$PR_BODY" \
+                    --arg head "$PR_HEAD" \
+                    --arg base "{{inputs.branch}}" \
+                    '{title: $title, body: $body, head: $head, base: $base}')
+                  
+                  PR_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "https://api.github.com/repos/$ORIGINAL_OWNER/$REPO/pulls" \
+                    -H "Authorization: token {{secret('GITHUB_TOKEN')}}" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    -H "Content-Type: application/json" \
+                    -d "$PR_PAYLOAD")
+                  
+                  # Extract HTTP code
+                  HTTP_CODE=$(echo "$PR_RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
+                  PR_BODY_RESPONSE=$(echo "$PR_RESPONSE" | sed '/HTTP_CODE:/d')
+                  
+                  # Try to parse URL, but don't fail if it has control characters
+                  PR_URL=$(echo "$PR_BODY_RESPONSE" | jq -r '.html_url // empty' 2>/dev/null || echo "null")
+                  
+                  if [ "$HTTP_CODE" = "201" ]; then
+                    # PR created successfully
+                    if [ -z "$PR_URL" ] || [ "$PR_URL" = "null" ]; then
+                      # Extract URL using grep as fallback
+                      PR_URL=$(echo "$PR_BODY_RESPONSE" | grep -o '"html_url":"[^"]*"' | head -1 | cut -d'"' -f4)
+                    fi
+                  else
+                    PR_URL="null"
+                    PR_ERROR=$(echo "$PR_BODY_RESPONSE" | jq -r '.message // empty' 2>/dev/null || echo "Unknown error")
+                  fi
+                  
+                  if [ "$PR_URL" != "null" ] && [ -n "$PR_URL" ]; then
+                    echo "✅ PR created: $PR_URL"
+                  else
+                    echo "⚠️  PR creation failed"
+                    if [ -n "$PR_ERROR" ]; then
+                      echo "   Error: $PR_ERROR"
+                    fi
+                    echo "   Response: $PR_RESPONSE"
+                  fi
+                fi
+                
+                # Notify backend
+                echo ""
+                echo "=== Notifying Backend ==="
+                BACKEND_URL="{{inputs.backendUrl}}"
+                BACKEND_URL=$(echo "$BACKEND_URL" | sed 's/localhost/host.docker.internal/g')
+                
+                curl -X POST "$BACKEND_URL/api/webhooks/kestra" \
+                  -H "Content-Type: application/json" \
+                  -d "{
+                    \"executionId\": \"{{execution.id}}\",
+                    \"status\": \"success\",
+                    \"scanId\": \"{{inputs.scanId}}\",
+                    \"outputs\": {
+                      \"issuesFound\": $TOTAL,
+                      \"issuesFixed\": 0,
+                      \"prUrl\": \"$PR_URL\",
+                      \"summary\": {
+                        \"high\": $HIGH,
+                        \"medium\": $MEDIUM,
+                        \"low\": $LOW
+                      }
+                    }
+                  }" && echo "✅ Backend notified" || echo "⚠️  Notification failed"
+                
+                echo ""
+                echo "=== Workflow Complete ==="
+                echo "Scan ID: {{inputs.scanId}}"
+                echo "Issues: $TOTAL"
+                echo "PR: $PR_URL"
 
 errors:
   - id: error_handler

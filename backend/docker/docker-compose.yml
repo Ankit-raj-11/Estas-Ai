@@ -47,6 +47,10 @@ services:
           secret:
             type: env
             prefix: SECRET_
+          
+          # Disable authentication for local development
+          security:
+            enabled: false
             
           repository:
             type: postgres
