@@ -19,83 +19,61 @@ inputs:
     description: Backend API URL for callbacks
 
 variables:
-  repoDir: "/tmp/repos/{{inputs.scanId}}"
   fixBranch: "security-fixes-{{execution.startDate | date('yyyyMMdd-HHmmss')}}"
 
 tasks:
-  # Step 1: Clone Repository
-  - id: clone_repo
-    type: io.kestra.plugin.git.Clone
-    description: Clone the target repository
-    url: "{{inputs.repoUrl}}"
-    branch: "{{inputs.branch}}"
-    directory: "{{vars.repoDir}}"
-    username: "github-token"
-    password: "{{secret('GITHUB_TOKEN')}}"
-    retry:
-      type: constant
-      maxAttempts: 3
-      interval: PT10S
-
-  # Step 2: Install Dependencies
-  - id: install_dependencies
+  # Step 1: Clone Repository and Run Scans
+  - id: clone_and_scan
     type: io.kestra.plugin.scripts.shell.Commands
-    description: Install project dependencies if needed
+    description: Clone repository and run security scans
+    outputFiles:
+      - "semgrep-results.json"
+      - "eslint-results.json"
+      - "bandit-results.json"
+      - "gitleaks-results.json"
     commands:
-      - cd {{vars.repoDir}}
       - |
+        echo "Cloning repository..."
+        git clone -b {{inputs.branch}} https://{{secret('GITHUB_TOKEN')}}@{{inputs.repoUrl | replace('https://', '')}} repo
+        cd repo
+        
+        echo "Repository cloned successfully"
+        ls -la
+        
+        echo "Installing dependencies if needed..."
         if [ -f "package.json" ]; then
-          echo "Installing npm dependencies..."
-          npm install --production || true
+          echo "Found package.json, installing npm dependencies..."
+          npm install --production || echo "npm install failed or not available"
         fi
-      - |
+        
         if [ -f "requirements.txt" ]; then
-          echo "Installing pip dependencies..."
-          pip install -r requirements.txt || true
+          echo "Found requirements.txt, installing pip dependencies..."
+          pip install -r requirements.txt || echo "pip install failed or not available"
         fi
+        
+        echo "Running security scans..."
+        
+        # Run Semgrep
+        echo "Running Semgrep..."
+        semgrep --config auto --json -o ../semgrep-results.json . || echo "Semgrep scan completed with issues or tool not available"
+        
+        # Run ESLint
+        echo "Running ESLint..."
+        eslint . --format json -o ../eslint-results.json || echo "ESLint scan completed with issues or tool not available"
+        
+        # Run Bandit
+        echo "Running Bandit..."
+        bandit -r . -f json -o ../bandit-results.json || echo "Bandit scan completed with issues or tool not available"
+        
+        # Run Gitleaks
+        echo "Running Gitleaks..."
+        gitleaks detect --report-format json --report-path ../gitleaks-results.json || echo "Gitleaks scan completed with issues or tool not available"
+        
+        echo "All scans completed!"
+        cd ..
+        ls -la
 
-  # Step 3: Run Security Scans in Parallel
-  - id: security_scans
-    type: io.kestra.plugin.core.flow.AllowFailure
-    description: Run all security scanners concurrently
-    tasks:
-      # Semgrep scan
-      - id: run_semgrep
-        type: io.kestra.plugin.scripts.shell.Commands
-        description: Run Semgrep security scanner
-        commands:
-          - cd {{vars.repoDir}}
-          - semgrep --config auto --json -o /tmp/semgrep-results-{{inputs.scanId}}.json . || true
-        timeout: PT5M
-
-      # ESLint scan
-      - id: run_eslint
-        type: io.kestra.plugin.scripts.shell.Commands
-        description: Run ESLint security scanner
-        commands:
-          - cd {{vars.repoDir}}
-          - eslint . --format json -o /tmp/eslint-results-{{inputs.scanId}}.json || true
-        timeout: PT5M
-
-      # Bandit scan
-      - id: run_bandit
-        type: io.kestra.plugin.scripts.shell.Commands
-        description: Run Bandit security scanner for Python
-        commands:
-          - cd {{vars.repoDir}}
-          - bandit -r . -f json -o /tmp/bandit-results-{{inputs.scanId}}.json || true
-        timeout: PT5M
-
-      # Gitleaks scan
-      - id: run_gitleaks
-        type: io.kestra.plugin.scripts.shell.Commands
-        description: Run Gitleaks secret scanner
-        commands:
-          - cd {{vars.repoDir}}
-          - gitleaks detect --report-format json --report-path /tmp/gitleaks-results-{{inputs.scanId}}.json || true
-        timeout: PT5M
-
-  # Step 4: Aggregate Results
+  # Step 2: Aggregate Results
   - id: aggregate_results
     type: io.kestra.plugin.scripts.python.Commands
     description: Aggregate and normalize all scan results
@@ -106,13 +84,12 @@ tasks:
         import json
         import os
         
-        scan_id = "{{inputs.scanId}}"
         results = []
         
-        # Load all result files
+        # Load all result files from working directory
         tools = ['semgrep', 'eslint', 'bandit', 'gitleaks']
         for tool in tools:
-            filepath = f'/tmp/{tool}-results-{scan_id}.json'
+            filepath = f'{tool}-results.json'
             if os.path.exists(filepath):
                 try:
                     with open(filepath, 'r') as f:
@@ -129,7 +106,7 @@ tasks:
         total_count = len(results)
         print(f'::{{ "outputs": {{ "findings": {json.dumps(results)}, "total_findings": {total_count} }} }}::')
 
-  # Step 5: AI Fix Generation Loop (Replaced deprecated EachParallel with ForEach)
+  # Step 5: AI Fix Generation Loop
   - id: generate_fixes
     type: io.kestra.plugin.core.flow.ForEach
     description: Generate AI fixes for each finding
@@ -148,7 +125,7 @@ tasks:
                 "finding": {{taskrun.value}},
                 "fileContent": "$(cat {{vars.repoDir}}/{{taskrun.value.file}})"
               }' \
-              -o /tmp/fix-{{taskrun.value.file | replace('/', '-')}}.json
+              -o fix-result.json
 
   # Step 6: Create Branch and Commit
   - id: commit_fixes
@@ -172,14 +149,13 @@ tasks:
         Scan ID: {{inputs.scanId}}
         Generated: {{execution.startDate}}"
 
-  # Step 7: Push Branch (Replaced deprecated Plugin with Shell Command)
+  # Step 7: Push Branch
   - id: push_branch
     type: io.kestra.plugin.scripts.shell.Commands
     description: Push fixes branch to remote
     commands:
       - cd {{vars.repoDir}}
-      # We use the token to construct the remote URL explicitly to ensure auth works
-      # This handles cases where the 'clone' task credentials don't persist to this shell session
+      # FIX APPLIED: Used secret() function instead of envs
       - git push "https://github-token:{{secret('GITHUB_TOKEN')}}@{{inputs.repoUrl | replace('https://', '')}}" {{vars.fixBranch}}
 
   # Step 8: Create Pull Request
@@ -197,8 +173,8 @@ tasks:
             "title": "🔒 Automated Security Fixes - {{execution.startDate | date('yyyy-MM-dd')}}",
             "body": "## Automated Security Fixes..."
           }' \
-          -o /tmp/pr-result-{{inputs.scanId}}.json
-        PR_URL=$(grep -o '"url":"[^"]*"' /tmp/pr-result-{{inputs.scanId}}.json | cut -d'"' -f4)
+          -o pr-result.json
+        PR_URL=$(grep -o '"url":"[^"]*"' pr-result.json | cut -d'"' -f4)
         echo "::{\"outputs\": {\"pr_url\": \"$PR_URL\"}}::"
 
   # Step 9: Notify Backend
@@ -232,7 +208,7 @@ errors:
             "executionId": "{{execution.id}}",
             "status": "failure",
             "scanId": "{{inputs.scanId}}",
-            "error": "{{error.message}}"
+            "error": "Workflow execution failed"
           }'
 
 triggers:

@@ -1,0 +1,118 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    KESTRA SECRET SETUP - QUICK GUIDE                       ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+🔐 PROBLEM: Kestra cannot find GITHUB_TOKEN secret
+
+✅ SOLUTION: Add the secret to Kestra (2 minutes)
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                         METHOD 1: KESTRA UI (EASIEST)                      ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+Step 1: Open Kestra UI
+   → http://localhost:8080/ui
+
+Step 2: Navigate to Secrets
+   → Click ⚙️ (Settings) in left sidebar
+   → Click "Secrets"
+
+Step 3: Create New Secret
+   → Click "+ Create" or "New Secret"
+   
+   Fill in the form:
+   ┌─────────────────────────────────────────────────────────────┐
+   │ Namespace:  company.team                                    │
+   │ Key:        GITHUB_TOKEN                                    │
+   │ Value:      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       │
+   └─────────────────────────────────────────────────────────────┘
+   
+   → Click "Save"
+
+Step 4: Verify
+   → You should see GITHUB_TOKEN listed
+   → Value will show as *** (hidden)
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    METHOD 2: DOCKER ENVIRONMENT VARIABLE                   ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+If running Kestra in Docker, restart with environment variable:
+
+docker run -p 8080:8080 \
+  -e KESTRA_SECRET_GITHUB_TOKEN="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" \
+  kestra/kestra:latest
+
+Then update workflow to use:
+  password: "{{envs.KESTRA_SECRET_GITHUB_TOKEN}}"
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                              VERIFICATION                                  ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+1. Check in Kestra UI
+   → Settings → Secrets
+   → Verify GITHUB_TOKEN exists under company.team
+
+2. Test the Workflow
+   cd backend
+   npm run test:api
+
+3. Check Execution in Kestra UI
+   → http://localhost:8080/ui/executions
+   → Latest execution should succeed
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                            TROUBLESHOOTING                                 ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+Issue: Still getting "Cannot find secret" error
+Fix:  1. Check namespace is exactly: company.team
+      2. Check key is exactly: GITHUB_TOKEN (case-sensitive)
+      3. Restart Kestra if needed
+
+Issue: Cannot access Kestra UI
+Fix:  1. Check if Kestra is running: curl http://localhost:8080/api/v1/health
+      2. Check Docker: docker ps | grep kestra
+      3. Start Kestra: docker run -p 8080:8080 kestra/kestra:latest
+
+Issue: Token doesn't work
+Fix:  1. Test token: curl -H "Authorization: token YOUR_TOKEN" https://api.github.com/user
+      2. Check token has 'repo' scope
+      3. Generate new token: https://github.com/settings/tokens
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                            QUICK REFERENCE                                 ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+Kestra UI:        http://localhost:8080/ui
+Secrets Page:     http://localhost:8080/ui/settings/secrets
+Executions:       http://localhost:8080/ui/executions
+
+Namespace:        company.team
+Secret Key:       GITHUB_TOKEN
+Secret Value:     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
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                              NEXT STEPS                                    ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+After adding the secret:
+
+1. ✅ Verify secret in Kestra UI
+2. ✅ Run test: npm run test:api
+3. ✅ Check execution logs in Kestra UI
+4. ✅ Workflow should now clone repository successfully
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                         SECURITY REMINDER                                  ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+⚠️  Never commit secrets to version control
+⚠️  Use different tokens for different environments
+⚠️  Rotate tokens regularly
+⚠️  Use minimal permissions (only 'repo' scope needed)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+For detailed instructions, see: KESTRA_SECRET_SETUP.md

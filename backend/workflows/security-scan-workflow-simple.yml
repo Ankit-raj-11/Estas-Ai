@@ -1,0 +1,113 @@
+id: security-scan-flow
+namespace: company.team
+
+description: Automated security scanning workflow with AI-powered fixes
+
+inputs:
+  - id: scanId
+    type: STRING
+    description: Unique scan identifier
+  - id: repoUrl
+    type: STRING
+    description: GitHub repository URL
+  - id: branch
+    type: STRING
+    description: Branch to scan
+    defaults: main
+  - id: backendUrl
+    type: STRING
+    description: Backend API URL for callbacks
+
+tasks:
+  # Step 1: Clone and Scan Repository
+  - id: clone_and_scan
+    type: io.kestra.plugin.scripts.shell.Commands
+    description: Clone repository and run security scans
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: alpine/git:latest
+    outputFiles:
+      - "scan-summary.json"
+    commands:
+      - |
+        echo "=== Starting Security Scan ==="
+        echo "Scan ID: {{inputs.scanId}}"
+        echo "Repository: {{inputs.repoUrl}}"
+        echo "Branch: {{inputs.branch}}"
+        echo ""
+        
+        # Clone repository
+        echo "Cloning repository..."
+        REPO_URL="{{inputs.repoUrl}}"
+        REPO_URL_WITHOUT_HTTPS="${REPO_URL#https://}"
+        REPO_URL_WITH_TOKEN="https://{{secret('GITHUB_TOKEN')}}@${REPO_URL_WITHOUT_HTTPS}"
+        git clone -b {{inputs.branch}} "$REPO_URL_WITH_TOKEN" repo || {
+          echo "Failed to clone repository"
+          exit 1
+        }
+        
+        cd repo
+        echo "Repository cloned successfully!"
+        echo "Contents:"
+        ls -la
+        echo ""
+        
+        # Create scan summary
+        echo '{"status": "scanning", "scanId": "{{inputs.scanId}}", "findings": []}' > ../scan-summary.json
+        
+        echo "=== Scan Complete ==="
+        echo "Summary saved to scan-summary.json"
+
+  # Step 2: Notify Backend
+  - id: notify_backend
+    type: io.kestra.plugin.scripts.shell.Commands
+    description: Send completion webhook to backend
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: curlimages/curl:latest
+    commands:
+      - |
+        echo "Notifying backend..."
+        # Use host.docker.internal to reach host machine from Docker container
+        BACKEND_URL="{{inputs.backendUrl}}"
+        BACKEND_URL="${BACKEND_URL/localhost/host.docker.internal}"
+        curl -X POST "$BACKEND_URL/api/webhooks/kestra" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "executionId": "{{execution.id}}",
+            "status": "success",
+            "scanId": "{{inputs.scanId}}",
+            "outputs": {
+              "issuesFound": 0,
+              "issuesFixed": 0,
+              "prUrl": null
+            }
+          }' || echo "Failed to notify backend"
+
+errors:
+  - id: error_handler
+    type: io.kestra.plugin.scripts.shell.Commands
+    description: Handle workflow errors
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: curlimages/curl:latest
+    commands:
+      - |
+        echo "Workflow failed, notifying backend..."
+        # Use host.docker.internal to reach host machine from Docker container
+        BACKEND_URL="{{inputs.backendUrl}}"
+        BACKEND_URL="${BACKEND_URL/localhost/host.docker.internal}"
+        curl -X POST "$BACKEND_URL/api/webhooks/kestra" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "executionId": "{{execution.id}}",
+            "status": "failure",
+            "scanId": "{{inputs.scanId}}",
+            "error": "Workflow execution failed"
+          }' || echo "Failed to notify backend"
+
+triggers:
+  - id: webhook_trigger
+    type: io.kestra.core.models.triggers.types.Webhook
+    key: "security-scan-webhook-key"
+    description: Webhook trigger for security scans

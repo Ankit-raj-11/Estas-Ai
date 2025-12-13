@@ -1,7 +1,10 @@
-const axios = require('axios');
-const config = require('../config');
-const logger = require('../utils/logger');
-const { ExternalServiceError } = require('../utils/errors');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const config = require("../config");
+const logger = require("../utils/logger");
+const { ExternalServiceError } = require("../utils/errors");
+
+// Initialize Google Generative AI
+const genAI = new GoogleGenerativeAI(config.ai.apiKey);
 
 /**
  * Generates a fix for a security issue using Claude AI
@@ -12,32 +15,43 @@ const { ExternalServiceError } = require('../utils/errors');
  */
 async function generateFix(finding, fileContent, context = {}) {
   try {
-    logger.info(`Generating AI fix for ${finding.file}:${finding.line}`, { rule: finding.rule });
-    
+    logger.info(`Generating AI fix for ${finding.file}:${finding.line}`, {
+      rule: finding.rule,
+    });
+
     const language = detectLanguage(finding.file);
     const codeSnippet = extractCodeSnippet(fileContent, finding.line, 10);
-    
+
     const prompt = buildPrompt(finding, codeSnippet, language, context);
-    
+
     const response = await callGeminiAPI(prompt);
     const fixData = parseAIResponse(response);
-    
-    const patch = generateUnifiedDiff(fileContent, fixData.fixedCode, finding.file);
-    
-    logger.info(`Successfully generated fix for ${finding.file}:${finding.line}`);
-    
+
+    const patch = generateUnifiedDiff(
+      fileContent,
+      fixData.fixedCode,
+      finding.file
+    );
+
+    logger.info(
+      `Successfully generated fix for ${finding.file}:${finding.line}`
+    );
+
     return {
       fixed: true,
       patch,
       explanation: fixData.explanation,
       recommendations: fixData.recommendations,
-      fixedCode: fixData.fixedCode
+      fixedCode: fixData.fixedCode,
     };
   } catch (error) {
-    logger.error(`Failed to generate AI fix: ${error.message}`, { error, finding });
+    logger.error(`Failed to generate AI fix: ${error.message}`, {
+      error,
+      finding,
+    });
     return {
       fixed: false,
-      error: error.message
+      error: error.message,
     };
   }
 }
@@ -48,20 +62,20 @@ async function generateFix(finding, fileContent, context = {}) {
  * @returns {string} Language name
  */
 function detectLanguage(filename) {
-  const ext = filename.split('.').pop().toLowerCase();
+  const ext = filename.split(".").pop().toLowerCase();
   const languageMap = {
-    js: 'JavaScript',
-    ts: 'TypeScript',
-    py: 'Python',
-    java: 'Java',
-    go: 'Go',
-    rb: 'Ruby',
-    php: 'PHP',
-    cs: 'C#',
-    cpp: 'C++',
-    c: 'C'
+    js: "JavaScript",
+    ts: "TypeScript",
+    py: "Python",
+    java: "Java",
+    go: "Go",
+    rb: "Ruby",
+    php: "PHP",
+    cs: "C#",
+    cpp: "C++",
+    c: "C",
   };
-  return languageMap[ext] || 'Unknown';
+  return languageMap[ext] || "Unknown";
 }
 
 /**
@@ -72,11 +86,11 @@ function detectLanguage(filename) {
  * @returns {string} Code snippet
  */
 function extractCodeSnippet(fileContent, lineNumber, contextLines = 10) {
-  const lines = fileContent.split('\n');
+  const lines = fileContent.split("\n");
   const start = Math.max(0, lineNumber - contextLines - 1);
   const end = Math.min(lines.length, lineNumber + contextLines);
-  
-  return lines.slice(start, end).join('\n');
+
+  return lines.slice(start, end).join("\n");
 }
 
 /**
@@ -120,47 +134,39 @@ Important: Only return valid JSON. The fixedCode should be the complete correcte
 }
 
 /**
- * Calls Google Gemini API with the prompt
+ * Calls Google Gemini API with the prompt using official SDK
  * @param {string} prompt - Formatted prompt
  * @returns {Promise<string>} AI response
  */
 async function callGeminiAPI(prompt) {
   try {
-    const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/${config.ai.model}:generateContent?key=${config.ai.apiKey}`,
-      {
-        contents: [
-          {
-            parts: [
-              {
-                text: prompt
-              }
-            ]
-          }
-        ],
-        generationConfig: {
-          maxOutputTokens: config.ai.maxTokens,
-          temperature: 0.2,
-          topP: 0.8,
-          topK: 40
-        }
+    logger.info("Calling Gemini API for fix generation");
+
+    // Get the generative model
+    const model = genAI.getGenerativeModel({
+      model: config.ai.model,
+      generationConfig: {
+        maxOutputTokens: config.ai.maxTokens,
+        temperature: 0.2,
+        topP: 0.8,
+        topK: 40,
       },
-      {
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        timeout: 60000
-      }
-    );
-    
-    if (response.data.candidates && response.data.candidates.length > 0) {
-      return response.data.candidates[0].content.parts[0].text;
+    });
+
+    // Generate content
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+
+    if (!text) {
+      throw new Error("No response from Gemini API");
     }
-    
-    throw new Error('No response from Gemini API');
+
+    logger.info("Gemini API call successful");
+    return text;
   } catch (error) {
     logger.error(`Gemini API call failed: ${error.message}`, { error });
-    throw new ExternalServiceError('AI service unavailable', error.message);
+    throw new ExternalServiceError("AI service unavailable", error.message);
   }
 }
 
@@ -176,16 +182,16 @@ function parseAIResponse(response) {
     if (jsonMatch) {
       return JSON.parse(jsonMatch[0]);
     }
-    
+
     // Fallback: return response as-is
     return {
       fixedCode: response,
-      explanation: 'AI provided fix without structured format',
-      recommendations: 'Review the fix carefully'
+      explanation: "AI provided fix without structured format",
+      recommendations: "Review the fix carefully",
     };
   } catch (error) {
     logger.error(`Failed to parse AI response: ${error.message}`);
-    throw new Error('Invalid AI response format');
+    throw new Error("Invalid AI response format");
   }
 }
 
@@ -201,10 +207,10 @@ function generateUnifiedDiff(originalContent, fixedContent, filename) {
   return `--- a/${filename}
 +++ b/${filename}
 @@ -1,1 +1,1 @@
--${originalContent.split('\n')[0]}
-+${fixedContent.split('\n')[0]}`;
+-${originalContent.split("\n")[0]}
++${fixedContent.split("\n")[0]}`;
 }
 
 module.exports = {
-  generateFix
+  generateFix,
 };

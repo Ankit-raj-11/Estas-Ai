@@ -1,0 +1,313 @@
+id: security-scan-flow
+namespace: company.team
+
+description: Complete automated security scanning workflow with AI-powered fixes
+
+inputs:
+  - id: scanId
+    type: STRING
+    description: Unique scan identifier
+  - id: repoUrl
+    type: STRING
+    description: GitHub repository URL
+  - id: branch
+    type: STRING
+    description: Branch to scan
+    defaults: main
+  - id: backendUrl
+    type: STRING
+    description: Backend API URL for callbacks
+
+variables:
+  fixBranch: "security-fixes-{{execution.startDate | date('yyyyMMdd-HHmmss')}}"
+
+tasks:
+  # Step 1: Clone Repository, Run Scans, and Create Fix Branch
+  - id: clone_scan_and_branch
+    type: io.kestra.plugin.scripts.shell.Commands
+    description: Clone repository, run security scans, and create fix branch
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: python:3.11-slim
+    outputFiles:
+      - "scan-results.json"
+      - "branch-name.txt"
+    commands:
+      - |
+        echo "=== Security Scanner Starting ==="
+        echo "Scan ID: {{inputs.scanId}}"
+        echo "Repository: {{inputs.repoUrl}}"
+        echo "Branch: {{inputs.branch}}"
+        echo ""
+        
+        # Install required tools
+        echo "Installing dependencies..."
+        apt-get update -qq
+        apt-get install -y -qq git curl jq > /dev/null 2>&1
+        
+        # Install Python security tools
+        pip install --quiet bandit semgrep
+        
+        # Clone repository
+        echo "Cloning repository..."
+        REPO_URL="{{inputs.repoUrl}}"
+        REPO_URL_WITHOUT_HTTPS="${REPO_URL#https://}"
+        REPO_URL_WITH_TOKEN="https://{{secret('GITHUB_TOKEN')}}@${REPO_URL_WITHOUT_HTTPS}"
+        
+        git clone -b {{inputs.branch}} "$REPO_URL_WITH_TOKEN" repo || {
+          echo "Failed to clone repository"
+          exit 1
+        }
+        
+        cd repo
+        echo "Repository cloned successfully!"
+        echo ""
+        
+        # Run Semgrep
+        echo "Running Semgrep security scanner..."
+        semgrep --config auto --json --quiet . > ../semgrep-raw.json 2>/dev/null || echo "Semgrep completed"
+        
+        # Run Bandit (Python)
+        echo "Running Bandit for Python files..."
+        bandit -r . -f json -o ../bandit-raw.json 2>/dev/null || echo "Bandit completed"
+        
+        # Parse and aggregate results
+        cd ..
+        echo "Aggregating scan results..."
+        
+        python3 << 'PYTHON_SCRIPT'
+        import json
+        import os
+        
+        findings = []
+        
+        # Parse Semgrep results
+        if os.path.exists('semgrep-raw.json'):
+            try:
+                with open('semgrep-raw.json', 'r') as f:
+                    semgrep_data = json.load(f)
+                    if 'results' in semgrep_data:
+                        for result in semgrep_data['results'][:10]:
+                            findings.append({
+                                'tool': 'semgrep',
+                                'file': result.get('path', 'unknown'),
+                                'line': result.get('start', {}).get('line', 0),
+                                'severity': result.get('extra', {}).get('severity', 'medium'),
+                                'rule': result.get('check_id', 'unknown'),
+                                'message': result.get('extra', {}).get('message', 'Security issue detected')
+                            })
+                        print(f"Found {len(findings)} Semgrep issues")
+            except Exception as e:
+                print(f"Error parsing Semgrep: {e}")
+        
+        # Parse Bandit results
+        if os.path.exists('bandit-raw.json'):
+            try:
+                with open('bandit-raw.json', 'r') as f:
+                    bandit_data = json.load(f)
+                    if 'results' in bandit_data:
+                        for result in bandit_data['results'][:10]:
+                            findings.append({
+                                'tool': 'bandit',
+                                'file': result.get('filename', 'unknown'),
+                                'line': result.get('line_number', 0),
+                                'severity': result.get('issue_severity', 'MEDIUM').lower(),
+                                'rule': result.get('test_id', 'unknown'),
+                                'message': result.get('issue_text', 'Security issue detected')
+                            })
+                        print(f"Found {len(findings) - len([f for f in findings if f['tool'] == 'semgrep'])} Bandit issues")
+            except Exception as e:
+                print(f"Error parsing Bandit: {e}")
+        
+        # Save aggregated results
+        results = {
+            'scanId': '{{inputs.scanId}}',
+            'findings': findings,
+            'summary': {
+                'total': len(findings),
+                'high': len([f for f in findings if f['severity'] == 'high']),
+                'medium': len([f for f in findings if f['severity'] == 'medium']),
+                'low': len([f for f in findings if f['severity'] == 'low'])
+            }
+        }
+        
+        with open('scan-results.json', 'w') as f:
+            json.dump(results, f, indent=2)
+        
+        print(f"\nTotal findings: {len(findings)}")
+        print(f"High: {results['summary']['high']}, Medium: {results['summary']['medium']}, Low: {results['summary']['low']}")
+        PYTHON_SCRIPT
+        
+        echo ""
+        echo "=== Scan Complete ==="
+        
+        # If issues found, create a branch with findings
+        TOTAL=$(jq -r '.summary.total // 0' scan-results.json)
+        if [ "$TOTAL" -gt 0 ]; then
+          echo "Creating fix branch with findings..."
+          cd repo
+          
+          # Create findings report
+          cat > SECURITY_FINDINGS.md << 'MDEOF'
+        # Security Scan Findings
+        
+        **Scan ID:** {{inputs.scanId}}
+        **Date:** {{execution.startDate}}
+        **Repository:** {{inputs.repoUrl}}
+        **Branch:** {{inputs.branch}}
+        
+        ## Summary
+        MDEOF
+          
+          # Add summary
+          jq -r '.summary | "\n- Total Issues: \(.total)\n- High Severity: \(.high)\n- Medium Severity: \(.medium)\n- Low Severity: \(.low)\n"' ../scan-results.json >> SECURITY_FINDINGS.md
+          
+          echo "## Findings" >> SECURITY_FINDINGS.md
+          echo "" >> SECURITY_FINDINGS.md
+          
+          # Add findings
+          jq -r '.findings[] | "### \(.tool) - \(.severity | ascii_upcase)\n**File:** `\(.file)`  \n**Line:** \(.line)  \n**Rule:** \(.rule)  \n**Message:** \(.message)\n"' ../scan-results.json >> SECURITY_FINDINGS.md
+          
+          # Configure git
+          git config user.email "security-bot@scanner.com"
+          git config user.name "Security Scanner Bot"
+          
+          # Create branch
+          BRANCH_NAME="security-scan-$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$BRANCH_NAME"
+          
+          # Commit findings
+          git add SECURITY_FINDINGS.md
+          git commit -m "🔒 Security Scan Results - $TOTAL issues found
+
+        Automated security scan completed.
+        
+        Summary:
+        - Total Issues: $TOTAL
+        - Scan ID: {{inputs.scanId}}
+        - Tools: Semgrep, Bandit
+        
+        See SECURITY_FINDINGS.md for details."
+          
+          # Push branch
+          git push -u origin "$BRANCH_NAME"
+          
+          echo "✅ Branch created: $BRANCH_NAME"
+          echo "$BRANCH_NAME" > ../branch-name.txt
+          cd ..
+        else
+          echo "No issues found, skipping branch creation"
+          echo "none" > branch-name.txt
+        fi
+
+  # Step 2: Create PR and Notify Backend
+  - id: create_pr_and_notify
+    type: io.kestra.plugin.scripts.shell.Commands
+    description: Create pull request and notify backend
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: python:3.11-slim
+    inputFiles:
+      scan-results.json: "{{outputs.clone_scan_and_branch.outputFiles['scan-results.json']}}"
+      branch-name.txt: "{{outputs.clone_scan_and_branch.outputFiles['branch-name.txt']}}"
+    commands:
+      - |
+        echo "=== Processing Results ==="
+        
+        apt-get update -qq && apt-get install -y -qq curl jq > /dev/null 2>&1
+        
+        TOTAL=$(jq -r '.summary.total // 0' scan-results.json)
+        HIGH=$(jq -r '.summary.high // 0' scan-results.json)
+        MEDIUM=$(jq -r '.summary.medium // 0' scan-results.json)
+        LOW=$(jq -r '.summary.low // 0' scan-results.json)
+        BRANCH_NAME=$(cat branch-name.txt)
+        
+        echo "Total Issues: $TOTAL"
+        echo "Branch: $BRANCH_NAME"
+        
+        PR_URL="null"
+        
+        # Create PR if issues found
+        if [ "$TOTAL" -gt 0 ] && [ "$BRANCH_NAME" != "none" ]; then
+          echo ""
+          echo "=== Creating Pull Request ==="
+          
+          REPO_URL="{{inputs.repoUrl}}"
+          OWNER=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f1)
+          REPO=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f2)
+          
+          PR_RESPONSE=$(curl -s -X POST "https://api.github.com/repos/$OWNER/$REPO/pulls" \
+            -H "Authorization: token {{secret('GITHUB_TOKEN')}}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -d "{
+              \"title\": \"🔒 Security Scan Results - $TOTAL issues found\",
+              \"body\": \"## Automated Security Scan\\n\\n**Scan ID:** {{inputs.scanId}}\\n**Total Issues:** $TOTAL\\n\\n### Summary\\n- High: $HIGH\\n- Medium: $MEDIUM\\n- Low: $LOW\\n\\n### Details\\nSee \`SECURITY_FINDINGS.md\` for complete findings.\\n\\n---\\n*Automated by Security Scanner*\",
+              \"head\": \"$BRANCH_NAME\",
+              \"base\": \"{{inputs.branch}}\"
+            }")
+          
+          PR_URL=$(echo "$PR_RESPONSE" | jq -r '.html_url // "null"')
+          
+          if [ "$PR_URL" != "null" ]; then
+            echo "✅ PR created: $PR_URL"
+          else
+            echo "⚠️  PR creation failed"
+          fi
+        fi
+        
+        # Notify backend
+        echo ""
+        echo "=== Notifying Backend ==="
+        BACKEND_URL="{{inputs.backendUrl}}"
+        BACKEND_URL=$(echo "$BACKEND_URL" | sed 's/localhost/host.docker.internal/g')
+        
+        curl -X POST "$BACKEND_URL/api/webhooks/kestra" \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"executionId\": \"{{execution.id}}\",
+            \"status\": \"success\",
+            \"scanId\": \"{{inputs.scanId}}\",
+            \"outputs\": {
+              \"issuesFound\": $TOTAL,
+              \"issuesFixed\": 0,
+              \"prUrl\": \"$PR_URL\",
+              \"summary\": {
+                \"high\": $HIGH,
+                \"medium\": $MEDIUM,
+                \"low\": $LOW
+              }
+            }
+          }" && echo "✅ Backend notified" || echo "⚠️  Notification failed"
+        
+        echo ""
+        echo "=== Workflow Complete ==="
+        echo "Scan ID: {{inputs.scanId}}"
+        echo "Issues: $TOTAL"
+        echo "PR: $PR_URL"
+
+errors:
+  - id: error_handler
+    type: io.kestra.plugin.scripts.shell.Commands
+    description: Handle workflow errors
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      image: curlimages/curl:latest
+    commands:
+      - |
+        echo "Workflow failed, notifying backend..."
+        BACKEND_URL="{{inputs.backendUrl}}"
+        BACKEND_URL=$(echo "$BACKEND_URL" | sed 's/localhost/host.docker.internal/g')
+        curl -X POST "$BACKEND_URL/api/webhooks/kestra" \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"executionId\": \"{{execution.id}}\",
+            \"status\": \"failure\",
+            \"scanId\": \"{{inputs.scanId}}\",
+            \"error\": \"Workflow execution failed\"
+          }" || echo "Failed to notify backend"
+
+triggers:
+  - id: webhook_trigger
+    type: io.kestra.core.models.triggers.types.Webhook
+    key: "security-scan-webhook-key"
+    description: Webhook trigger for security scans
