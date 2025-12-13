@@ -1,11 +1,15 @@
-const { Octokit } = require('@octokit/rest');
-const config = require('../config');
-const logger = require('../utils/logger');
-const { UnauthorizedError, NotFoundError, ExternalServiceError } = require('../utils/errors');
+const { Octokit } = require("@octokit/rest");
+const config = require("../config");
+const logger = require("../utils/logger");
+const {
+  UnauthorizedError,
+  NotFoundError,
+  ExternalServiceError,
+} = require("../utils/errors");
 
 const octokit = new Octokit({
   auth: config.github.token,
-  baseUrl: config.github.apiUrl
+  baseUrl: config.github.apiUrl,
 });
 
 /**
@@ -16,11 +20,11 @@ const octokit = new Octokit({
 function parseRepoUrl(repoUrl) {
   const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
   if (!match) {
-    throw new Error('Invalid GitHub URL format');
+    throw new Error("Invalid GitHub URL format");
   }
   return {
     owner: match[1],
-    repo: match[2].replace(/\.git$/, '')
+    repo: match[2].replace(/\.git$/, ""),
   };
 }
 
@@ -34,19 +38,19 @@ async function validateRepoAccess(repoUrl) {
   try {
     const { owner, repo } = parseRepoUrl(repoUrl);
     logger.info(`Validating access to ${owner}/${repo}`);
-    
+
     const { data } = await octokit.repos.get({ owner, repo });
-    
+
     logger.info(`Successfully validated access to ${owner}/${repo}`);
     return data;
   } catch (error) {
     if (error.status === 401) {
-      throw new UnauthorizedError('GitHub authentication failed');
+      throw new UnauthorizedError("GitHub authentication failed");
     } else if (error.status === 404) {
-      throw new NotFoundError('Repository not found or not accessible');
+      throw new NotFoundError("Repository not found or not accessible");
     }
     logger.error(`Failed to validate repo access: ${error.message}`, { error });
-    throw new ExternalServiceError('GitHub API error', error.message);
+    throw new ExternalServiceError("GitHub API error", error.message);
   }
 }
 
@@ -62,7 +66,10 @@ async function getDefaultBranch(owner, repo) {
     return data.default_branch;
   } catch (error) {
     logger.error(`Failed to get default branch: ${error.message}`, { error });
-    throw new ExternalServiceError('Failed to get default branch', error.message);
+    throw new ExternalServiceError(
+      "Failed to get default branch",
+      error.message
+    );
   }
 }
 
@@ -76,26 +83,28 @@ async function getDefaultBranch(owner, repo) {
  */
 async function createBranch(owner, repo, branchName, fromBranch) {
   try {
-    logger.info(`Creating branch ${branchName} from ${fromBranch} in ${owner}/${repo}`);
-    
+    logger.info(
+      `Creating branch ${branchName} from ${fromBranch} in ${owner}/${repo}`
+    );
+
     const { data: refData } = await octokit.git.getRef({
       owner,
       repo,
-      ref: `heads/${fromBranch}`
+      ref: `heads/${fromBranch}`,
     });
-    
+
     const { data } = await octokit.git.createRef({
       owner,
       repo,
       ref: `refs/heads/${branchName}`,
-      sha: refData.object.sha
+      sha: refData.object.sha,
     });
-    
+
     logger.info(`Successfully created branch ${branchName}`);
     return data;
   } catch (error) {
     logger.error(`Failed to create branch: ${error.message}`, { error });
-    throw new ExternalServiceError('Failed to create branch', error.message);
+    throw new ExternalServiceError("Failed to create branch", error.message);
   }
 }
 
@@ -112,35 +121,35 @@ async function createBranch(owner, repo, branchName, fromBranch) {
 async function commitFile(owner, repo, branch, path, content, message) {
   try {
     logger.info(`Committing file ${path} to ${branch} in ${owner}/${repo}`);
-    
+
     let sha;
     try {
       const { data: fileData } = await octokit.repos.getContent({
         owner,
         repo,
         path,
-        ref: branch
+        ref: branch,
       });
       sha = fileData.sha;
     } catch (error) {
       // File doesn't exist, that's okay
     }
-    
+
     const { data } = await octokit.repos.createOrUpdateFileContents({
       owner,
       repo,
       path,
       message,
-      content: Buffer.from(content).toString('base64'),
+      content: Buffer.from(content).toString("base64"),
       branch,
-      sha
+      sha,
     });
-    
+
     logger.info(`Successfully committed file ${path}`);
     return data;
   } catch (error) {
     logger.error(`Failed to commit file: ${error.message}`, { error });
-    throw new ExternalServiceError('Failed to commit file', error.message);
+    throw new ExternalServiceError("Failed to commit file", error.message);
   }
 }
 
@@ -157,21 +166,24 @@ async function commitFile(owner, repo, branch, path, content, message) {
 async function createPullRequest(owner, repo, head, base, title, body) {
   try {
     logger.info(`Creating PR from ${head} to ${base} in ${owner}/${repo}`);
-    
+
     const { data } = await octokit.pulls.create({
       owner,
       repo,
       title,
       head,
       base,
-      body
+      body,
     });
-    
+
     logger.info(`Successfully created PR #${data.number}: ${data.html_url}`);
     return data;
   } catch (error) {
     logger.error(`Failed to create pull request: ${error.message}`, { error });
-    throw new ExternalServiceError('Failed to create pull request', error.message);
+    throw new ExternalServiceError(
+      "Failed to create pull request",
+      error.message
+    );
   }
 }
 
@@ -181,5 +193,5 @@ module.exports = {
   getDefaultBranch,
   createBranch,
   commitFile,
-  createPullRequest
+  createPullRequest,
 };

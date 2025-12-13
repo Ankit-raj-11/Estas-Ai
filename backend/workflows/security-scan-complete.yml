@@ -33,6 +33,7 @@ tasks:
       - "scan-results.json"
       - "branch-name.txt"
       - "fork-owner.txt"
+      - "fix-count.txt"
     commands:
       - |
         echo "=== Security Scanner Starting ==="
@@ -41,24 +42,46 @@ tasks:
         echo "Branch: {{inputs.branch}}"
         echo ""
         
-        # Install required tools
         echo "Installing dependencies..."
         apt-get update -qq
         apt-get install -y -qq git curl jq > /dev/null 2>&1
         
-        # Install Python security tools
-        pip install --quiet bandit semgrep
+        echo "Installing Python packages..."
+        pip install --quiet bandit semgrep requests || {
+          echo "ERROR: Failed to install Python packages"
+          exit 1
+        }
+        echo "Python packages installed successfully"
         
-        # Extract owner and repo from URL
+        GITHUB_TOKEN_B64="{{secret('GITHUB_TOKEN')}}"
+        
+        if [ -z "$GITHUB_TOKEN_B64" ]; then
+          echo "ERROR: GitHub token secret is empty!"
+          exit 1
+        fi
+        
+        echo "Decoding GitHub token..."
+        GITHUB_TOKEN=$(printf '%s' "$GITHUB_TOKEN_B64" | base64 -d 2>&1) || {
+          echo "Base64 decode failed, using token as-is"
+          GITHUB_TOKEN="$GITHUB_TOKEN_B64"
+        }
+        
+        if [ -z "$GITHUB_TOKEN" ]; then
+          echo "ERROR: GitHub token is empty after decoding!"
+          echo "Token B64 was: $GITHUB_TOKEN_B64"
+          exit 1
+        fi
+        
+        echo "Token configured successfully"
+        
         REPO_URL="{{inputs.repoUrl}}"
         OWNER=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f1)
         REPO=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f2)
         
         echo "Target Repository: $OWNER/$REPO"
         
-        # Check if we have write access, if not, fork it
         echo "Checking repository access..."
-        REPO_CHECK=$(curl -s -H "Authorization: token {{secret('GITHUB_TOKEN')}}" \
+        REPO_CHECK=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
           "https://api.github.com/repos/$OWNER/$REPO")
         
         CAN_PUSH=$(echo "$REPO_CHECK" | jq -r '.permissions.push // false')
@@ -66,15 +89,13 @@ tasks:
         if [ "$CAN_PUSH" != "true" ]; then
           echo "No write access to $OWNER/$REPO, forking repository..."
           
-          # Get authenticated user first
-          MY_USER=$(curl -s -H "Authorization: token {{secret('GITHUB_TOKEN')}}" \
+          MY_USER=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
             "https://api.github.com/user" | jq -r '.login')
           
           echo "Authenticated as: $MY_USER"
           
-          # Fork the repository
           FORK_RESPONSE=$(curl -s -X POST \
-            -H "Authorization: token {{secret('GITHUB_TOKEN')}}" \
+            -H "Authorization: token $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/$OWNER/$REPO/forks")
           
@@ -82,38 +103,32 @@ tasks:
           echo "Waiting for fork to be ready..."
           sleep 10
           
-          # Clone from fork
-          CLONE_URL="https://{{secret('GITHUB_TOKEN')}}@github.com/$MY_USER/$REPO.git"
+          CLONE_URL="https://$GITHUB_TOKEN@github.com/$MY_USER/$REPO.git"
           FORK_OWNER="$MY_USER"
         else
           echo "Have write access to $OWNER/$REPO, cloning directly..."
-          CLONE_URL="https://{{secret('GITHUB_TOKEN')}}@github.com/$OWNER/$REPO.git"
+          CLONE_URL="https://$GITHUB_TOKEN@github.com/$OWNER/$REPO.git"
           FORK_OWNER="$OWNER"
         fi
         
-        # Clone repository
         echo "Cloning repository..."
-        git clone -b {{inputs.branch}} "$CLONE_URL" repo || {
+        GIT_TERMINAL_PROMPT=0 git clone -b {{inputs.branch}} "$CLONE_URL" repo || {
           echo "Failed to clone repository"
           exit 1
         }
         
-        # Save fork owner for later use
         echo "$FORK_OWNER" > fork-owner.txt
         
         cd repo
         echo "Repository cloned successfully!"
         echo ""
         
-        # Run Semgrep
         echo "Running Semgrep security scanner..."
         semgrep --config auto --json --quiet . > ../semgrep-raw.json 2>/dev/null || echo "Semgrep completed"
         
-        # Run Bandit (Python)
         echo "Running Bandit for Python files..."
         bandit -r . -f json -o ../bandit-raw.json 2>/dev/null || echo "Bandit completed"
         
-        # Parse and aggregate results
         cd ..
         echo "Aggregating scan results..."
         
@@ -123,7 +138,6 @@ tasks:
         
         findings = []
         
-        # Parse Semgrep results
         if os.path.exists('semgrep-raw.json'):
             try:
                 with open('semgrep-raw.json', 'r') as f:
@@ -142,7 +156,6 @@ tasks:
             except Exception as e:
                 print(f"Error parsing Semgrep: {e}")
         
-        # Parse Bandit results
         if os.path.exists('bandit-raw.json'):
             try:
                 with open('bandit-raw.json', 'r') as f:
@@ -161,7 +174,6 @@ tasks:
             except Exception as e:
                 print(f"Error parsing Bandit: {e}")
         
-        # Save aggregated results
         results = {
             'scanId': '{{inputs.scanId}}',
             'findings': findings,
@@ -183,63 +195,137 @@ tasks:
         echo ""
         echo "=== Scan Complete ==="
         
-        # If issues found, create a branch with findings
         TOTAL=$(jq -r '.summary.total // 0' scan-results.json)
         if [ "$TOTAL" -gt 0 ]; then
-          echo "Creating fix branch with findings..."
+          echo "Generating AI fixes for $TOTAL issues..."
+          
+          echo "Testing backend connectivity..."
+          BACKEND_TEST_URL="{{inputs.backendUrl}}"
+          BACKEND_TEST_URL=$(echo "$BACKEND_TEST_URL" | sed 's/localhost/host.docker.internal/g')
+          curl -s "$BACKEND_TEST_URL/api/health" || echo "Backend not accessible!"
+          
           cd repo
           
-          # Create findings report
-          cat > SECURITY_FINDINGS.md << 'MDEOF'
-        # Security Scan Findings
-        
-        **Scan ID:** {{inputs.scanId}}
-        **Date:** {{execution.startDate}}
-        **Repository:** {{inputs.repoUrl}}
-        **Branch:** {{inputs.branch}}
-        
-        ## Summary
-        MDEOF
-          
-          # Add summary
-          jq -r '.summary | "\n- Total Issues: \(.total)\n- High Severity: \(.high)\n- Medium Severity: \(.medium)\n- Low Severity: \(.low)\n"' ../scan-results.json >> SECURITY_FINDINGS.md
-          
-          echo "## Findings" >> SECURITY_FINDINGS.md
-          echo "" >> SECURITY_FINDINGS.md
-          
-          # Add findings
-          jq -r '.findings[] | "### \(.tool) - \(.severity | ascii_upcase)\n**File:** `\(.file)`  \n**Line:** \(.line)  \n**Rule:** \(.rule)  \n**Message:** \(.message)\n"' ../scan-results.json >> SECURITY_FINDINGS.md
-          
-          # Configure git
           git config user.email "security-bot@scanner.com"
           git config user.name "Security Scanner Bot"
           
-          # Create branch
-          BRANCH_NAME="security-scan-$(date +%Y%m%d-%H%M%S)"
+          BRANCH_NAME="security-fixes-$(date +%Y%m%d-%H%M%S)"
           git checkout -b "$BRANCH_NAME"
           
-          # Commit findings
-          git add SECURITY_FINDINGS.md
-          git commit -m "🔒 Security Scan Results - $TOTAL issues found
+          python3 << 'FIX_SCRIPT'
+        import json
+        import os
+        import requests
+        
+        with open('../scan-results.json', 'r') as f:
+            results = json.load(f)
+        
+        findings = results['findings']
+        fixed_count = 0
+        
+        print(f"\nProcessing {len(findings)} findings...")
+        
+        for idx, finding in enumerate(findings, 1):
+            file_path = finding['file']
+            print(f"\n[{idx}/{len(findings)}] Processing: {file_path}")
+            
+            if not os.path.exists(file_path):
+                print(f"  File not found, skipping")
+                continue
+            
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    file_content = f.read()
+            except Exception as e:
+                print(f"  Error reading file: {e}")
+                continue
+            
+            backend_url = "{{inputs.backendUrl}}".replace('localhost', 'host.docker.internal')
+            
+            if not backend_url.startswith('http'):
+                backend_url = f"http://{backend_url}"
+            
+            print(f"  Calling backend API: {backend_url}/api/scan/fix")
+            
+            try:
+                response = requests.post(
+                    f"{backend_url}/api/scan/fix",
+                    json={
+                        "scanId": "{{inputs.scanId}}",
+                        "finding": finding,
+                        "fileContent": file_content
+                    },
+                    timeout=60
+                )
+                
+                print(f"  API Response: {response.status_code}")
+                
+                if response.status_code == 200:
+                    fix_data = response.json()
+                    
+                    if fix_data.get('fixed') == True:
+                        fixed_code = fix_data.get('fixedCode', '')
+                        
+                        if fixed_code and fixed_code != file_content:
+                            with open(file_path, 'w', encoding='utf-8') as f:
+                                f.write(fixed_code)
+                            
+                            print(f"  Fixed: {finding['rule']}")
+                            fixed_count += 1
+                        else:
+                            print(f"  No changes: AI returned same code or empty")
+                    else:
+                        print(f"  AI could not fix: {fix_data.get('error', 'Unknown error')}")
+                else:
+                    print(f"  API error: {response.status_code}")
+                    print(f"  Response: {response.text}")
+            except Exception as e:
+                print(f"  Error calling API: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        print(f"\nFixed {fixed_count} out of {len(findings)} issues")
+        
+        with open('../fix-count.txt', 'w') as f:
+            f.write(str(fixed_count))
+        FIX_SCRIPT
+          
+          echo "Checking for modified files..."
+          git status
+          
+          if git diff --quiet; then
+            echo "No fixes were applied, skipping commit"
+            echo "none" > ../branch-name.txt
+            echo "0" > ../fix-count.txt
+          else
+            echo "Files were modified, committing changes..."
+            FIXED_COUNT=$(cat ../fix-count.txt)
+            git add -A
+            git status
+            git commit -m "Automated Security Fixes - $FIXED_COUNT issues fixed
 
-        Automated security scan completed.
+        Applied AI-generated fixes for security vulnerabilities.
         
         Summary:
-        - Total Issues: $TOTAL
+        - Total Issues Found: $TOTAL
+        - Issues Fixed: $FIXED_COUNT
         - Scan ID: {{inputs.scanId}}
         - Tools: Semgrep, Bandit
+        - AI Model: Gemini
         
-        See SECURITY_FINDINGS.md for details."
-          
-          # Push branch
-          git push -u origin "$BRANCH_NAME"
-          
-          echo "✅ Branch created: $BRANCH_NAME"
-          echo "$BRANCH_NAME" > ../branch-name.txt
+        All changes have been automatically generated and applied."
+            
+            echo "Pushing branch to origin..."
+            git push -u origin "$BRANCH_NAME"
+            
+            echo "Branch created with fixes: $BRANCH_NAME"
+            echo "$BRANCH_NAME" > ../branch-name.txt
+          fi
           cd ..
         else
-          echo "No issues found, skipping branch creation"
+          echo "No issues found, skipping fix generation"
           echo "none" > branch-name.txt
+          echo "0" > fix-count.txt
         fi
 
   # Step 2: Create PR and Notify Backend
@@ -253,11 +339,13 @@ tasks:
       scan-results.json: "{{outputs.clone_scan_and_branch.outputFiles['scan-results.json']}}"
       branch-name.txt: "{{outputs.clone_scan_and_branch.outputFiles['branch-name.txt']}}"
       fork-owner.txt: "{{outputs.clone_scan_and_branch.outputFiles['fork-owner.txt']}}"
+      fix-count.txt: "{{outputs.clone_scan_and_branch.outputFiles['fix-count.txt']}}"
     commands:
       - |
+        set +e
         echo "=== Processing Results ==="
         
-        apt-get update -qq && apt-get install -y -qq curl jq > /dev/null 2>&1
+        apt-get update -qq && apt-get install -y -qq curl jq python3 > /dev/null 2>&1
         
         TOTAL=$(jq -r '.summary.total // 0' scan-results.json)
         HIGH=$(jq -r '.summary.high // 0' scan-results.json)
@@ -265,6 +353,7 @@ tasks:
         LOW=$(jq -r '.summary.low // 0' scan-results.json)
         BRANCH_NAME=$(cat branch-name.txt)
         FORK_OWNER=$(cat fork-owner.txt)
+        FIXED_COUNT=$(cat fix-count.txt)
         
         echo "Total Issues: $TOTAL"
         echo "Branch: $BRANCH_NAME"
@@ -272,7 +361,6 @@ tasks:
         
         PR_URL="null"
         
-        # Create PR if issues found
         if [ "$TOTAL" -gt 0 ] && [ "$BRANCH_NAME" != "none" ]; then
           echo ""
           echo "=== Creating Pull Request ==="
@@ -281,7 +369,6 @@ tasks:
           ORIGINAL_OWNER=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f1)
           REPO=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f2)
           
-          # If forked, use fork_owner:branch format for head
           if [ "$FORK_OWNER" != "$ORIGINAL_OWNER" ]; then
             PR_HEAD="$FORK_OWNER:$BRANCH_NAME"
             echo "Creating PR from fork: $PR_HEAD -> $ORIGINAL_OWNER:{{inputs.branch}}"
@@ -290,95 +377,178 @@ tasks:
             echo "Creating PR from same repo: $PR_HEAD -> {{inputs.branch}}"
           fi
           
-          # Create PR body (properly escaped)
-          PR_BODY="## Automated Security Scan
+          export TOTAL="$TOTAL"
+          export HIGH="$HIGH"
+          export MEDIUM="$MEDIUM"
+          export LOW="$LOW"
+          export FIXED_COUNT="$FIXED_COUNT"
+          export PR_HEAD="$PR_HEAD"
+          export ORIGINAL_OWNER="$ORIGINAL_OWNER"
+          export REPO="$REPO"
+          
+          python3 << 'CREATE_PR'
+        import json
+        import subprocess
+        import os
+        
+        total = int(os.environ.get('TOTAL', 0))
+        high = int(os.environ.get('HIGH', 0))
+        medium = int(os.environ.get('MEDIUM', 0))
+        low = int(os.environ.get('LOW', 0))
+        fixed_count = int(os.environ.get('FIXED_COUNT', 0))
+        pr_head = os.environ.get('PR_HEAD', '')
+        original_owner = os.environ.get('ORIGINAL_OWNER', '')
+        repo = os.environ.get('REPO', '')
+        
+        pr_body = f"""## Automated Security Fixes
 
         **Scan ID:** {{inputs.scanId}}
-        **Total Issues:** $TOTAL
+        **Issues Found:** {total}
+        **Issues Fixed:** {fixed_count}
 
         ### Summary
-        - High: $HIGH
-        - Medium: $MEDIUM  
-        - Low: $LOW
+        - High Severity: {high}
+        - Medium Severity: {medium}
+        - Low Severity: {low}
 
-        ### Details
-        See \`SECURITY_FINDINGS.md\` for complete findings.
+        ### What Changed
+        This PR contains AI-generated fixes for security vulnerabilities detected by automated scanners (Semgrep, Bandit).
+
+        All code changes have been automatically generated using AI to address the identified security issues.
+
+        ### Review Checklist
+        - [ ] Review all code changes carefully
+        - [ ] Test the application thoroughly
+        - [ ] Verify fixes don't break functionality
+        - [ ] Check for any unintended side effects
 
         ---
-        *Automated by Security Scanner*"
-                  
-                  # Create JSON payload using jq to properly escape
-                  PR_PAYLOAD=$(jq -n \
-                    --arg title "🔒 Security Scan Results - $TOTAL issues found" \
-                    --arg body "$PR_BODY" \
-                    --arg head "$PR_HEAD" \
-                    --arg base "{{inputs.branch}}" \
-                    '{title: $title, body: $body, head: $head, base: $base}')
-                  
-                  PR_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "https://api.github.com/repos/$ORIGINAL_OWNER/$REPO/pulls" \
-                    -H "Authorization: token {{secret('GITHUB_TOKEN')}}" \
-                    -H "Accept: application/vnd.github.v3+json" \
-                    -H "Content-Type: application/json" \
-                    -d "$PR_PAYLOAD")
-                  
-                  # Extract HTTP code
-                  HTTP_CODE=$(echo "$PR_RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
-                  PR_BODY_RESPONSE=$(echo "$PR_RESPONSE" | sed '/HTTP_CODE:/d')
-                  
-                  # Try to parse URL, but don't fail if it has control characters
-                  PR_URL=$(echo "$PR_BODY_RESPONSE" | jq -r '.html_url // empty' 2>/dev/null || echo "null")
-                  
-                  if [ "$HTTP_CODE" = "201" ]; then
-                    # PR created successfully
-                    if [ -z "$PR_URL" ] || [ "$PR_URL" = "null" ]; then
-                      # Extract URL using grep as fallback
-                      PR_URL=$(echo "$PR_BODY_RESPONSE" | grep -o '"html_url":"[^"]*"' | head -1 | cut -d'"' -f4)
-                    fi
-                  else
-                    PR_URL="null"
-                    PR_ERROR=$(echo "$PR_BODY_RESPONSE" | jq -r '.message // empty' 2>/dev/null || echo "Unknown error")
-                  fi
-                  
-                  if [ "$PR_URL" != "null" ] && [ -n "$PR_URL" ]; then
-                    echo "✅ PR created: $PR_URL"
-                  else
-                    echo "⚠️  PR creation failed"
-                    if [ -n "$PR_ERROR" ]; then
-                      echo "   Error: $PR_ERROR"
-                    fi
-                    echo "   Response: $PR_RESPONSE"
-                  fi
-                fi
+        *Automated by Security Scanner with AI-powered fixes*"""
+        
+        payload = {
+            "title": f"Automated Security Fixes - {fixed_count}/{total} issues fixed",
+            "body": pr_body,
+            "head": pr_head,
+            "base": "{{inputs.branch}}"
+        }
+        
+        github_token_b64 = "{{secret('GITHUB_TOKEN')}}"
+        
+        try:
+            github_token = subprocess.check_output(['base64', '-d'], input=github_token_b64.encode()).decode().strip()
+        except:
+            github_token = github_token_b64
+        
+        headers = {
+            "Authorization": f"token {github_token}",
+            "Accept": "application/vnd.github.v3+json",
+            "Content-Type": "application/json"
+        }
+        
+        import urllib.request
+        
+        url = f"https://api.github.com/repos/{original_owner}/{repo}/pulls"
+        req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers, method='POST')
+        
+        try:
+            with urllib.request.urlopen(req) as response:
+                result = json.loads(response.read().decode())
+                pr_url = result.get('html_url', 'null')
+                print(f"PR created: {pr_url}")
+                with open('/tmp/pr_url.txt', 'w') as f:
+                    f.write(pr_url)
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode()
+            print(f"PR creation failed: {e.code}")
+            print(f"Error: {error_body}")
+            with open('/tmp/pr_url.txt', 'w') as f:
+                f.write('null')
+        except Exception as e:
+            print(f"PR creation error: {e}")
+            with open('/tmp/pr_url.txt', 'w') as f:
+                f.write('null')
+        CREATE_PR
+          
+          PR_URL=$(cat /tmp/pr_url.txt 2>/dev/null || echo "null")
+          
+          if [ "$PR_URL" != "null" ] && [ -n "$PR_URL" ]; then
+            echo "✅ PR created successfully: $PR_URL"
+          else
+            echo "⚠️  PR creation failed or skipped"
+          fi
+        fi
                 
-                # Notify backend
-                echo ""
-                echo "=== Notifying Backend ==="
-                BACKEND_URL="{{inputs.backendUrl}}"
-                BACKEND_URL=$(echo "$BACKEND_URL" | sed 's/localhost/host.docker.internal/g')
-                
-                curl -X POST "$BACKEND_URL/api/webhooks/kestra" \
-                  -H "Content-Type: application/json" \
-                  -d "{
-                    \"executionId\": \"{{execution.id}}\",
-                    \"status\": \"success\",
-                    \"scanId\": \"{{inputs.scanId}}\",
-                    \"outputs\": {
-                      \"issuesFound\": $TOTAL,
-                      \"issuesFixed\": 0,
-                      \"prUrl\": \"$PR_URL\",
-                      \"summary\": {
-                        \"high\": $HIGH,
-                        \"medium\": $MEDIUM,
-                        \"low\": $LOW
-                      }
-                    }
-                  }" && echo "✅ Backend notified" || echo "⚠️  Notification failed"
-                
-                echo ""
-                echo "=== Workflow Complete ==="
-                echo "Scan ID: {{inputs.scanId}}"
-                echo "Issues: $TOTAL"
-                echo "PR: $PR_URL"
+        echo ""
+        echo "=== Notifying Backend ==="
+        BACKEND_URL="{{inputs.backendUrl}}"
+        BACKEND_URL=$(echo "$BACKEND_URL" | sed 's/localhost/host.docker.internal/g')
+        
+        if ! echo "$BACKEND_URL" | grep -q "^http"; then
+          BACKEND_URL="http://$BACKEND_URL"
+        fi
+        
+        echo "Backend URL: $BACKEND_URL"
+        
+        export BACKEND_URL="$BACKEND_URL"
+        export TOTAL="$TOTAL"
+        export HIGH="$HIGH"
+        export MEDIUM="$MEDIUM"
+        export LOW="$LOW"
+        export FIXED_COUNT="$FIXED_COUNT"
+        
+        python3 << 'NOTIFY_BACKEND'
+        import json
+        import urllib.request
+        import os
+        
+        backend_url = os.environ.get('BACKEND_URL', '')
+        total = int(os.environ.get('TOTAL', 0))
+        high = int(os.environ.get('HIGH', 0))
+        medium = int(os.environ.get('MEDIUM', 0))
+        low = int(os.environ.get('LOW', 0))
+        fixed_count = int(os.environ.get('FIXED_COUNT', 0))
+        
+        try:
+            with open('/tmp/pr_url.txt', 'r') as f:
+                pr_url = f.read().strip()
+        except:
+            pr_url = 'null'
+        
+        payload = {
+            "executionId": "{{execution.id}}",
+            "status": "success",
+            "scanId": "{{inputs.scanId}}",
+            "outputs": {
+                "issuesFound": total,
+                "issuesFixed": fixed_count,
+                "prUrl": pr_url,
+                "summary": {
+                    "high": high,
+                    "medium": medium,
+                    "low": low
+                }
+            }
+        }
+        
+        try:
+            req = urllib.request.Request(
+                f"{backend_url}/api/webhooks/kestra",
+                data=json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json"},
+                method='POST'
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                print(f"Backend notified successfully: {response.status}")
+        except Exception as e:
+            print(f"Backend notification failed: {e}")
+        NOTIFY_BACKEND
+        
+        echo ""
+        echo "=== Workflow Complete ==="
+        echo "Scan ID: {{inputs.scanId}}"
+        echo "Issues: $TOTAL"
+        echo "Fixed: $FIXED_COUNT"
+        echo "PR: $PR_URL"
 
 errors:
   - id: error_handler
@@ -403,6 +573,6 @@ errors:
 
 triggers:
   - id: webhook_trigger
-    type: io.kestra.core.models.triggers.types.Webhook
+    type: io.kestra.plugin.core.trigger.Webhook
     key: "security-scan-webhook-key"
     description: Webhook trigger for security scans

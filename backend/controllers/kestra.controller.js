@@ -19,7 +19,6 @@ async function handleWebhook(req, res, next) {
     }
     
     try {
-      // Find and update scan
       const scan = storageService.getScan(scanId);
       
       const updates = {
@@ -45,7 +44,11 @@ async function handleWebhook(req, res, next) {
       
       logger.info(`Updated scan ${scanId} with webhook data`, { status: updates.status });
     } catch (error) {
-      logger.error(`Failed to update scan from webhook: ${error.message}`, { error, scanId });
+      if (error.name === 'NotFoundError') {
+        logger.info(`Scan ${scanId} not found in storage (likely triggered directly from Kestra), logging results only`, { outputs });
+      } else {
+        logger.error(`Failed to update scan from webhook: ${error.message}`, { error, scanId });
+      }
     }
     
     res.status(200).json({ received: true });

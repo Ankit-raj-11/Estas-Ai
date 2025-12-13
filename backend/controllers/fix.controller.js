@@ -36,6 +36,7 @@ async function fixSecurityIssue(req, res, next) {
         rule: finding.rule
       },
       fixed: fix.fixed,
+      fixedCode: fix.fixedCode,
       patch: fix.patch,
       explanation: fix.explanation,
       recommendations: fix.recommendations,
