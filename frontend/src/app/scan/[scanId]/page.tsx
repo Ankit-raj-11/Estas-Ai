@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getScanStatus } from "@/lib/api";
+import { getScanStatus, getScanLogs } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -78,6 +78,18 @@ export default function ScanDetailsPage() {
     },
   });
 
+  const { data: logsData, isLoading: logsLoading } = useQuery({
+    queryKey: ["logs", scanId],
+    queryFn: () => getScanLogs(scanId),
+    enabled: !!scan?.kestraExecutionId,
+    retry: 1,
+    refetchInterval: (query) => {
+      const status = scan?.status?.toLowerCase();
+      if (status === "completed" || status === "failed") return false;
+      return 10000;
+    },
+  });
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success("Copied to clipboard");
@@ -118,11 +130,16 @@ export default function ScanDetailsPage() {
   }
 
   const findings = scan.findings || scan.results?.findings || [];
+  
+  // Get counts from progress or results
+  const issuesFound = scan.progress?.issuesFound || scan.results?.issuesFound || 0;
+  const issuesFixed = scan.progress?.issuesFixed || scan.results?.issuesFixed || 0;
+  
   const summary = scan.results?.summary || {
-    total: scan.totalFindings || findings.length || 0,
-    high: findings.filter((f: { severity: string }) => f.severity === "high").length,
-    medium: findings.filter((f: { severity: string }) => f.severity === "medium").length,
-    low: findings.filter((f: { severity: string }) => f.severity === "low").length,
+    total: issuesFound,
+    high: scan.results?.summary?.high || 0,
+    medium: scan.results?.summary?.medium || 0,
+    low: scan.results?.summary?.low || 0,
   };
 
   return (
@@ -151,9 +168,9 @@ export default function ScanDetailsPage() {
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isRefetching}>
             <RefreshCw className={`h-4 w-4 mr-2 ${isRefetching ? "animate-spin" : ""}`} />Refresh
           </Button>
-          {scan.prUrl && (
+          {(scan.prUrl || scan.results?.prUrl) && (
             <Button size="sm" asChild>
-              <a href={scan.prUrl} target="_blank" rel="noopener noreferrer">
+              <a href={scan.prUrl || scan.results?.prUrl} target="_blank" rel="noopener noreferrer">
                 <ExternalLink className="h-4 w-4 mr-2" />View PR
               </a>
             </Button>
@@ -162,11 +179,11 @@ export default function ScanDetailsPage() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-        <Card><CardContent className="pt-6"><div className="text-2xl font-bold">{summary.total}</div><p className="text-sm text-muted-foreground">Total</p></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="text-2xl font-bold">{issuesFound}</div><p className="text-sm text-muted-foreground">Total</p></CardContent></Card>
         <Card><CardContent className="pt-6"><div className="text-2xl font-bold text-red-400">{summary.high}</div><p className="text-sm text-muted-foreground">High</p></CardContent></Card>
         <Card><CardContent className="pt-6"><div className="text-2xl font-bold text-yellow-400">{summary.medium}</div><p className="text-sm text-muted-foreground">Medium</p></CardContent></Card>
         <Card><CardContent className="pt-6"><div className="text-2xl font-bold text-blue-400">{summary.low}</div><p className="text-sm text-muted-foreground">Low</p></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="text-2xl font-bold text-green-400">{scan.autoFixed || 0}</div><p className="text-sm text-muted-foreground">Fixed</p></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="text-2xl font-bold text-green-400">{issuesFixed}</div><p className="text-sm text-muted-foreground">Fixed</p></CardContent></Card>
       </div>
 
       <Tabs defaultValue="findings" className="space-y-6">
@@ -253,7 +270,7 @@ export default function ScanDetailsPage() {
             <CardContent>
               <TimelineStep title="Repository Cloned" description="Code fetched from GitHub" status={getTimelineStatus(1) as "completed" | "active" | "pending"} />
               <TimelineStep title="Scanners Executed" description="Running security tools" status={getTimelineStatus(2) as "completed" | "active" | "pending"} />
-              <TimelineStep title="Vulnerabilities Detected" description={`${summary.total} issues found`} status={getTimelineStatus(3) as "completed" | "active" | "pending"} />
+              <TimelineStep title="Vulnerabilities Detected" description={`${issuesFound} issues found`} status={getTimelineStatus(3) as "completed" | "active" | "pending"} />
               <TimelineStep title="AI Fix Generated" description="Gemini generating fixes" status={getTimelineStatus(4) as "completed" | "active" | "pending"} />
               <TimelineStep title="PR Created" description="Changes pushed to GitHub" status={getTimelineStatus(5) as "completed" | "active" | "pending"} isLast />
             </CardContent>
@@ -262,6 +279,75 @@ export default function ScanDetailsPage() {
             <Card className="mt-6">
               <CardHeader><CardTitle className="flex items-center gap-2"><Bot className="h-5 w-5 text-purple-400" />AI Summary</CardTitle></CardHeader>
               <CardContent><p className="text-sm text-muted-foreground">{scan.aiSummary}</p></CardContent>
+            </Card>
+          )}
+          {scan.kestraExecutionId && (
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle>Execution Logs</CardTitle>
+                <CardDescription>Real-time logs from the security scan workflow</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Execution ID:</span>
+                    <code className="text-sm bg-muted px-2 py-1 rounded">{scan.kestraExecutionId}</code>
+                  </div>
+                  
+                  {logsLoading ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Clock className="h-8 w-8 mx-auto mb-2 animate-pulse" />
+                      <p className="text-sm">Loading logs...</p>
+                    </div>
+                  ) : logsData?.success && logsData.logs && logsData.logs.length > 0 ? (
+                    <div className="bg-black/50 rounded-lg p-4 max-h-96 overflow-y-auto font-mono text-xs space-y-1">
+                      {logsData.logs
+                        .filter((log: any) => log.level === "INFO" || log.level === "ERROR" || log.level === "WARN")
+                        .slice(0, 100)
+                        .map((log: any, index: number) => (
+                          <div 
+                            key={`${log.timestamp}-${index}`}
+                            className="leading-relaxed"
+                          >
+                            <span className="text-gray-500 mr-2">
+                              {new Date(log.timestamp).toLocaleTimeString()}
+                            </span>
+                            <span className={`font-semibold mr-2 ${
+                              log.level === "ERROR" ? "text-red-400" : 
+                              log.level === "WARN" ? "text-yellow-400" : 
+                              "text-blue-400"
+                            }`}>
+                              [{log.level}]
+                            </span>
+                            <span className="text-gray-300">{log.message}</span>
+                          </div>
+                        ))}
+                      {logsData.logs.filter((log: any) => log.level === "INFO" || log.level === "ERROR" || log.level === "WARN").length > 100 && (
+                        <div className="text-center text-muted-foreground pt-2">
+                          ... and {logsData.logs.filter((log: any) => log.level === "INFO" || log.level === "ERROR" || log.level === "WARN").length - 100} more logs
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Clock className="h-8 w-8 mx-auto mb-2" />
+                      <p className="text-sm">No logs available yet</p>
+                      <p className="text-xs mt-2">Logs will appear once the scan starts executing</p>
+                    </div>
+                  )}
+                  
+                  <Button variant="outline" size="sm" asChild className="w-full">
+                    <a 
+                      href={`http://localhost:8080/ui/executions/company.team/security-scan-flow/${scan.kestraExecutionId}`}
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                    >
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      View Full Logs in Kestra
+                    </a>
+                  </Button>
+                </div>
+              </CardContent>
             </Card>
           )}
         </TabsContent>

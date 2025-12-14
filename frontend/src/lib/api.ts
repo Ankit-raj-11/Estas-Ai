@@ -117,3 +117,7 @@ export async function getAllScans(): Promise<AllScansResponse> {
 export async function getScanFindings(scanId: string): Promise<{ findings: Finding[] }> {
   return fetchApi<{ findings: Finding[] }>(`/api/scan/${scanId}/findings`);
 }
+
+export async function getScanLogs(scanId: string): Promise<{ success: boolean; logs: any[] }> {
+  return fetchApi<{ success: boolean; logs: any[] }>(`/api/scan/${scanId}/logs`);
+}

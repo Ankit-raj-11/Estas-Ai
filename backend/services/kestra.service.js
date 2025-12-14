@@ -3,24 +3,30 @@ const config = require('../config');
 const logger = require('../utils/logger');
 const { ExternalServiceError } = require('../utils/errors');
 
-// Kestra default credentials (for local development)
-const KESTRA_USERNAME = process.env.KESTRA_USERNAME || 'admin@kestra.io';
-const KESTRA_PASSWORD = process.env.KESTRA_PASSWORD || 'kestra';
+// Kestra credentials (optional for local development)
+const KESTRA_USERNAME = process.env.KESTRA_USERNAME;
+const KESTRA_PASSWORD = process.env.KESTRA_PASSWORD;
 
 /**
- * Get axios config with basic auth for Kestra API calls
+ * Get axios config with optional basic auth for Kestra API calls
  */
 function getAxiosConfig(additionalHeaders = {}) {
-  return {
-    auth: {
-      username: KESTRA_USERNAME,
-      password: KESTRA_PASSWORD
-    },
+  const config = {
     headers: {
       'Content-Type': 'application/json',
       ...additionalHeaders
     }
   };
+  
+  // Only add auth if credentials are provided
+  if (KESTRA_USERNAME && KESTRA_PASSWORD) {
+    config.auth = {
+      username: KESTRA_USERNAME,
+      password: KESTRA_PASSWORD
+    };
+  }
+  
+  return config;
 }
 
 /**
@@ -45,20 +51,22 @@ async function triggerWorkflow(flowId, inputs) {
       formData.append(key, String(value));
     });
     
-    const response = await axios.post(
-      baseUrl,
-      formData,
-      {
-        auth: {
-          username: KESTRA_USERNAME,
-          password: KESTRA_PASSWORD
-        },
-        headers: {
-          ...formData.getHeaders()
-        },
-        timeout: 30000
-      }
-    );
+    const axiosConfig = {
+      headers: {
+        ...formData.getHeaders()
+      },
+      timeout: 30000
+    };
+    
+    // Only add auth if credentials are provided
+    if (KESTRA_USERNAME && KESTRA_PASSWORD) {
+      axiosConfig.auth = {
+        username: KESTRA_USERNAME,
+        password: KESTRA_PASSWORD
+      };
+    }
+    
+    const response = await axios.post(baseUrl, formData, axiosConfig);
     
     const executionId = response.data.id;
     logger.info(`Workflow triggered successfully: ${executionId}`);

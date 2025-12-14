@@ -28,6 +28,12 @@ router.get('/:scanId', scanController.getScanStatus);
 router.get('/:scanId/findings', scanController.getScanFindings);
 
 /**
+ * GET /api/scan/:scanId/logs
+ * Gets execution logs for a scan
+ */
+router.get('/:scanId/logs', scanController.getScanLogs);
+
+/**
  * POST /api/scan/fix
  * Fixes a security issue (internal API)
  */

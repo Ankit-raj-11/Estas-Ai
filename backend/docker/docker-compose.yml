@@ -48,17 +48,9 @@ services:
             type: env
             prefix: SECRET_
           
-          # Completely disable authentication for local development
-          security:
-            enabled: false
-            basic-auth:
-              enabled: false
-            anonymous-access:
-              enabled: true
-          
-          # Also disable at server level
-          server:
-            basic-auth:
+          # Disable authentication for local development
+          micronaut:
+            security:
               enabled: false
             
           repository:

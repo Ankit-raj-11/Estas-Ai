@@ -22,7 +22,10 @@ async function handleWebhook(req, res, next) {
       const scan = storageService.getScan(scanId);
       
       const updates = {
-        status: status === 'success' ? 'completed' : 'failed'
+        status: status === 'success' ? 'completed' : 'failed',
+        // Preserve existing fields
+        repoUrl: scan.repoUrl,
+        branch: scan.branch
       };
       
       if (outputs) {
