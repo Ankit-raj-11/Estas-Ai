@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: oklch(0.145 0 0);
+  --color-foreground: oklch(0.985 0 0);
+  --color-card: oklch(0.178 0.012 285);
+  --color-card-foreground: oklch(0.985 0 0);
+  --color-popover: oklch(0.178 0.012 285);
+  --color-popover-foreground: oklch(0.985 0 0);
+  --color-primary: oklch(0.714 0.203 305);
+  --color-primary-foreground: oklch(0.145 0 0);
+  --color-secondary: oklch(0.269 0.015 285);
+  --color-secondary-foreground: oklch(0.985 0 0);
+  --color-muted: oklch(0.269 0.015 285);
+  --color-muted-foreground: oklch(0.708 0.015 285);
+  --color-accent: oklch(0.269 0.015 285);
+  --color-accent-foreground: oklch(0.985 0 0);
+  --color-destructive: oklch(0.577 0.245 27);
+  --color-destructive-foreground: oklch(0.985 0 0);
+  --color-border: oklch(0.35 0.02 285);
+  --color-input: oklch(0.35 0.02 285);
+  --color-ring: oklch(0.714 0.203 305);
+  --radius: 0.625rem;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* Code block styling */
+.code-block {
+  background: oklch(0.12 0.01 285);
+  border: 1px solid oklch(0.25 0.02 285);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.875rem;
+  overflow-x: auto;
+}
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, oklch(0.75 0.2 305), oklch(0.7 0.15 250));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Glow effects */
+.glow-purple {
+  box-shadow: 0 0 20px oklch(0.5 0.2 305 / 0.3);
+}
+
+.glow-blue {
+  box-shadow: 0 0 20px oklch(0.5 0.15 250 / 0.3);
+}
