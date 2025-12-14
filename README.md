@@ -386,13 +386,13 @@ curl -X POST "http://localhost:8080/api/v1/flows" \
 ### 6. Start the Application
 
 **Terminal 1 - Backend:**
-bash
+```bash
 cd backend
 npm run dev
 ```
 
 **Terminal 2 - Frontend:**
-bash
+```bash
 cd frontend
 npm run dev
 ```
