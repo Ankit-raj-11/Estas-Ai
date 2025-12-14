@@ -19,12 +19,17 @@ function validateConfig() {
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
+  
+  // Warn about optional Supabase config
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
+    console.warn('⚠️  Supabase not configured - using in-memory storage (set SUPABASE_URL and SUPABASE_KEY for persistence)');
+  }
 }
 
 validateConfig();
 
 /**
- * Application configuration object
+ * Application configuration object - Sentinel Flow
  */
 const config = {
   server: {
@@ -45,6 +50,10 @@ const config = {
     apiKey: process.env.AI_API_KEY,
     model: process.env.AI_MODEL || 'gemini-2.0-flash-exp',
     maxTokens: parseInt(process.env.AI_MAX_TOKENS, 10) || 8192
+  },
+  supabase: {
+    url: process.env.SUPABASE_URL,
+    key: process.env.SUPABASE_KEY
   },
   storage: {
     tempRepoDir: process.env.TEMP_REPO_DIR || path.join(__dirname, '..', 'tmp', 'repos')

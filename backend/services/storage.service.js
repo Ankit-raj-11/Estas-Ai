@@ -13,7 +13,8 @@ const scans = new Map();
  * @returns {string} Generated scan ID
  */
 function createScan(scanData) {
-  const scanId = uuidv4();
+  // Use provided scanId or generate a new one
+  const scanId = scanData.scanId || uuidv4();
   const scan = {
     scanId,
     repoUrl: scanData.repoUrl,

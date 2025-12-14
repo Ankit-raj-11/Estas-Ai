@@ -79,9 +79,7 @@ tasks:
         
         REPO_URL="{{inputs.repoUrl}}"
         OWNER=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f1)
-        # 🌟 FIX APPLIED: Extract repo name and strip the '.git' suffix
-        REPO_PATH=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f2)
-        REPO=$(echo "$REPO_PATH" | sed 's/\.git$//')
+        REPO=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f2)
         
         echo "Target Repository: $OWNER/$REPO"
         
@@ -108,12 +106,10 @@ tasks:
           echo "Waiting for fork to be ready..."
           sleep 10
           
-          # CLONE_URL is now correctly formed: .../$REPO.git
           CLONE_URL="https://$GITHUB_TOKEN@github.com/$MY_USER/$REPO.git"
           FORK_OWNER="$MY_USER"
         else
           echo "Have write access to $OWNER/$REPO, cloning directly..."
-          # CLONE_URL is now correctly formed: .../$REPO.git
           CLONE_URL="https://$GITHUB_TOKEN@github.com/$OWNER/$REPO.git"
           FORK_OWNER="$OWNER"
         fi
@@ -237,14 +233,14 @@ tasks:
             print(f"\n[{idx}/{len(findings)}] Processing: {file_path}")
             
             if not os.path.exists(file_path):
-                print(f" 	File not found, skipping")
+                print(f"  File not found, skipping")
                 continue
             
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     file_content = f.read()
             except Exception as e:
-                print(f" 	Error reading file: {e}")
+                print(f"  Error reading file: {e}")
                 continue
             
             backend_url = "{{inputs.backendUrl}}".replace('localhost', 'host.docker.internal')
@@ -252,7 +248,7 @@ tasks:
             if not backend_url.startswith('http'):
                 backend_url = f"http://{backend_url}"
             
-            print(f" 	Calling backend API: {backend_url}/api/scan/fix")
+            print(f"  Calling backend API: {backend_url}/api/scan/fix")
             
             try:
                 response = requests.post(
@@ -265,7 +261,7 @@ tasks:
                     timeout=60
                 )
                 
-                print(f" 	API Response: {response.status_code}")
+                print(f"  API Response: {response.status_code}")
                 
                 if response.status_code == 200:
                     fix_data = response.json()
@@ -277,17 +273,17 @@ tasks:
                             with open(file_path, 'w', encoding='utf-8') as f:
                                 f.write(fixed_code)
                             
-                            print(f" 	Fixed: {finding['rule']}")
+                            print(f"  Fixed: {finding['rule']}")
                             fixed_count += 1
                         else:
-                            print(f" 	No changes: AI returned same code or empty")
+                            print(f"  No changes: AI returned same code or empty")
                     else:
-                        print(f" 	AI could not fix: {fix_data.get('error', 'Unknown error')}")
+                        print(f"  AI could not fix: {fix_data.get('error', 'Unknown error')}")
                 else:
-                    print(f" 	API error: {response.status_code}")
-                    print(f" 	Response: {response.text}")
+                    print(f"  API error: {response.status_code}")
+                    print(f"  Response: {response.text}")
             except Exception as e:
-                print(f" 	Error calling API: {e}")
+                print(f"  Error calling API: {e}")
                 import traceback
                 traceback.print_exc()
         
@@ -310,7 +306,7 @@ tasks:
             git add -A
             git status
             git commit -m "Automated Security Fixes - $FIXED_COUNT issues fixed
-        
+
         Applied AI-generated fixes for security vulnerabilities.
         
         Summary:
@@ -374,10 +370,8 @@ tasks:
           
           REPO_URL="{{inputs.repoUrl}}"
           ORIGINAL_OWNER=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f1)
-          # 🌟 FIX APPLIED: Extract repo name and strip the '.git' suffix
-          REPO_PATH=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f2)
-          REPO=$(echo "$REPO_PATH" | sed 's/\.git$//')
-
+          REPO=$(echo "$REPO_URL" | sed 's|https://github.com/||' | cut -d/ -f2)
+          
           if [ "$FORK_OWNER" != "$ORIGINAL_OWNER" ]; then
             PR_HEAD="$FORK_OWNER:$BRANCH_NAME"
             echo "Creating PR from fork: $PR_HEAD -> $ORIGINAL_OWNER:{{inputs.branch}}"
@@ -410,27 +404,27 @@ tasks:
         repo = os.environ.get('REPO', '')
         
         pr_body = f"""## Automated Security Fixes
-        
+
         **Scan ID:** {{inputs.scanId}}
         **Issues Found:** {total}
         **Issues Fixed:** {fixed_count}
-        
+
         ### Summary
         - High Severity: {high}
         - Medium Severity: {medium}
         - Low Severity: {low}
-        
+
         ### What Changed
         This PR contains AI-generated fixes for security vulnerabilities detected by automated scanners (Semgrep, Bandit).
-        
+
         All code changes have been automatically generated using AI to address the identified security issues.
-        
+
         ### Review Checklist
         - [ ] Review all code changes carefully
         - [ ] Test the application thoroughly
         - [ ] Verify fixes don't break functionality
         - [ ] Check for any unintended side effects
-        
+
         ---
         *Automated by Security Scanner with AI-powered fixes*"""
         
@@ -483,7 +477,7 @@ tasks:
           if [ "$PR_URL" != "null" ] && [ -n "$PR_URL" ]; then
             echo "✅ PR created successfully: $PR_URL"
           else
-            echo "⚠️ 	PR creation failed or skipped"
+            echo "⚠️  PR creation failed or skipped"
           fi
         fi
                 

@@ -48,9 +48,18 @@ services:
             type: env
             prefix: SECRET_
           
-          # Disable authentication for local development
+          # Completely disable authentication for local development
           security:
             enabled: false
+            basic-auth:
+              enabled: false
+            anonymous-access:
+              enabled: true
+          
+          # Also disable at server level
+          server:
+            basic-auth:
+              enabled: false
             
           repository:
             type: postgres

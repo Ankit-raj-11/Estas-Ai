@@ -3,6 +3,26 @@ const config = require('../config');
 const logger = require('../utils/logger');
 const { ExternalServiceError } = require('../utils/errors');
 
+// Kestra default credentials (for local development)
+const KESTRA_USERNAME = process.env.KESTRA_USERNAME || 'admin@kestra.io';
+const KESTRA_PASSWORD = process.env.KESTRA_PASSWORD || 'kestra';
+
+/**
+ * Get axios config with basic auth for Kestra API calls
+ */
+function getAxiosConfig(additionalHeaders = {}) {
+  return {
+    auth: {
+      username: KESTRA_USERNAME,
+      password: KESTRA_PASSWORD
+    },
+    headers: {
+      'Content-Type': 'application/json',
+      ...additionalHeaders
+    }
+  };
+}
+
 /**
  * Triggers a Kestra workflow
  * @param {string} flowId - Workflow ID
@@ -13,14 +33,28 @@ async function triggerWorkflow(flowId, inputs) {
   try {
     logger.info(`Triggering Kestra workflow: ${flowId}`, { inputs });
     
-    const url = `${config.kestra.url}/api/v1/executions/${config.kestra.namespace}/${flowId}`;
+    // Kestra API requires /main/ in path and multipart/form-data
+    const baseUrl = `${config.kestra.url}/api/v1/main/executions/${config.kestra.namespace}/${flowId}`;
+    
+    // Build FormData with inputs
+    const FormData = require('form-data');
+    const formData = new FormData();
+    
+    // Add each input as a form field
+    Object.entries(inputs).forEach(([key, value]) => {
+      formData.append(key, String(value));
+    });
     
     const response = await axios.post(
-      url,
-      inputs,
+      baseUrl,
+      formData,
       {
+        auth: {
+          username: KESTRA_USERNAME,
+          password: KESTRA_PASSWORD
+        },
         headers: {
-          'Content-Type': 'application/json'
+          ...formData.getHeaders()
         },
         timeout: 30000
       }
@@ -48,6 +82,7 @@ async function getExecutionStatus(executionId) {
     const url = `${config.kestra.url}/api/v1/executions/${executionId}`;
     
     const response = await axios.get(url, {
+      ...getAxiosConfig(),
       timeout: 10000
     });
     
@@ -76,6 +111,7 @@ async function getExecutionLogs(executionId) {
     const url = `${config.kestra.url}/api/v1/logs/${executionId}`;
     
     const response = await axios.get(url, {
+      ...getAxiosConfig(),
       timeout: 10000
     });
     
@@ -92,12 +128,64 @@ async function getExecutionLogs(executionId) {
  */
 async function checkHealth() {
   try {
-    const url = `${config.kestra.url}/api/v1/health`;
-    const response = await axios.get(url, { timeout: 5000 });
+    // Try the flows endpoint with authentication (using /main/ path)
+    const url = `${config.kestra.url}/api/v1/main/flows/${config.kestra.namespace}`;
+    const response = await axios.get(url, { 
+      ...getAxiosConfig(),
+      timeout: 5000 
+    });
     return response.status === 200;
   } catch (error) {
+    // If we get 401, auth failed but Kestra is running
+    if (error.response && error.response.status === 401) {
+      logger.warn('Kestra is running but authentication failed - check credentials');
+      return true;
+    }
+    // 404 means namespace doesn't exist but Kestra is running
+    if (error.response && error.response.status === 404) {
+      return true;
+    }
     logger.error(`Kestra health check failed: ${error.message}`);
     return false;
+  }
+}
+
+/**
+ * Triggers the apply-fixes workflow via webhook
+ * @param {Object} params - Workflow parameters
+ * @returns {Promise<string>} Execution ID
+ */
+async function triggerApplyFixesWorkflow(params) {
+  try {
+    const { scanId, approvedFindingIds, repoUrl, branch } = params;
+    
+    logger.info(`Triggering apply-fixes workflow for scan: ${scanId}`, {
+      approvedCount: approvedFindingIds.length
+    });
+    
+    const url = `${config.kestra.url}/api/v1/executions/webhook/${config.kestra.namespace}/apply-fixes-flow/apply-fixes-webhook-key`;
+    
+    const response = await axios.post(
+      url,
+      {
+        scanId,
+        approvedFindingIds,
+        repoUrl,
+        branch
+      },
+      {
+        ...getAxiosConfig(),
+        timeout: 30000
+      }
+    );
+    
+    const executionId = response.data.id;
+    logger.info(`Apply-fixes workflow triggered: ${executionId}`);
+    
+    return executionId;
+  } catch (error) {
+    logger.error(`Failed to trigger apply-fixes workflow: ${error.message}`, { error });
+    throw new ExternalServiceError('Apply-fixes workflow trigger failed', error.message);
   }
 }
 
@@ -105,5 +193,6 @@ module.exports = {
   triggerWorkflow,
   getExecutionStatus,
   getExecutionLogs,
-  checkHealth
+  checkHealth,
+  triggerApplyFixesWorkflow
 };
