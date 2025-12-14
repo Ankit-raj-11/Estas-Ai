@@ -49,10 +49,10 @@
 
 Estas-AI is an autonomous security scanning platform that combines multiple security analysis tools with AI-powered fix generation. The system automatically:
 
-1. *Scans* GitHub repositories using Semgrep, Bandit, and Gitleaks
-2. *Analyzes* vulnerabilities and prioritizes them by severity
-3. *Generates* intelligent code fixes using Google Gemini AI
-4. *Creates* pull requests with the fixes automatically applied
+1. **Scans** GitHub repositories using Semgrep, Bandit, and Gitleaks
+2. **Analyzes** vulnerabilities and prioritizes them by severity
+3. **Generates** intelligent code fixes using Google Gemini AI
+4. **Creates** pull requests with the fixes automatically applied
 
 ### The Problem
 
@@ -67,28 +67,28 @@ Estas-AI is an autonomous security scanning platform that combines multiple secu
 
 | Feature | How It Works |
 |:--------|:-------------|
-| *Automated Parallel Scanning* | Runs Semgrep, Bandit, and Gitleaks simultaneously via Kestra |
-| *AI-Driven Decision Making* | Google Gemini analyzes findings and generates context-aware fixes |
-| *Intelligent Fix Generation* | AI produces secure, idiomatic code patches |
-| *Autonomous Remediation* | Creates branches, commits fixes, and opens PRs automatically |
+| **Automated Parallel Scanning** | Runs Semgrep, Bandit, and Gitleaks simultaneously via Kestra |
+| **AI-Driven Decision Making** | Google Gemini analyzes findings and generates context-aware fixes |
+| **Intelligent Fix Generation** | AI produces secure, idiomatic code patches |
+| **Autonomous Remediation** | Creates branches, commits fixes, and opens PRs automatically |
 
 ---
 
 ## ✨ Key Features
 
-- *Multi-Tool Security Scanning*: Semgrep (SAST), Bandit (Python), Gitleaks (secrets)
-- *AI-Powered Fix Generation*: Google Gemini 2.0 Flash generates secure code fixes
-- *Kestra Workflow Orchestration*: Reliable, scalable workflow execution
-- *Automatic PR Creation*: Fixes are committed and PRs opened automatically
-- *Real-time Dashboard*: Monitor scans, view findings, track progress
-- *AI Chat Assistant*: Ask questions about vulnerabilities and get explanations
-- *Fork Support*: Works with repos you don't have write access to (auto-forks)
+- **Multi-Tool Security Scanning**: Semgrep (SAST), Bandit (Python), Gitleaks (secrets)
+- **AI-Powered Fix Generation**: Google Gemini 2.0 Flash generates secure code fixes
+- **Kestra Workflow Orchestration**: Reliable, scalable workflow execution
+- **Automatic PR Creation**: Fixes are committed and PRs opened automatically
+- **Real-time Dashboard**: Monitor scans, view findings, track progress
+- **AI Chat Assistant**: Ask questions about vulnerabilities and get explanations
+- **Fork Support**: Works with repos you don't have write access to (auto-forks)
 
 ---
 
 ## 🏗 System Architecture
 
-
+```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              ESTAS-AI ARCHITECTURE                          │
 ├─────────────────────────────────────────────────────────────────────────────┤
@@ -123,11 +123,11 @@ Estas-AI is an autonomous security scanning platform that combines multiple secu
 │                              └──────────────────┘                           │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
-
+```
 
 ### Data Flow
 
-mermaid
+```mermaid
 sequenceDiagram
     participant User
     participant Frontend
@@ -152,7 +152,7 @@ sequenceDiagram
     Kestra->>Backend: Notify completion
     Backend-->>Frontend: Update scan status
     Frontend-->>User: Show results & PR link
-
+```
 
 ---
 
@@ -160,19 +160,19 @@ sequenceDiagram
 
 | Component | Technology | Purpose |
 |:----------|:-----------|:--------|
-| *Frontend* | Next.js 16, React 19, TailwindCSS 4 | User interface & dashboard |
-| *Backend* | Express.js, Node.js | API gateway & AI service |
-| *Orchestration* | Kestra | Workflow management & task execution |
-| *AI Engine* | Google Gemini 2.0 Flash | Code fix generation & analysis |
-| *Security Scanners* | Semgrep, Bandit, Gitleaks | Vulnerability detection |
-| *Database* | Supabase (optional) | Persistent storage |
-| *Infrastructure* | Docker, PostgreSQL | Container orchestration |
+| **Frontend** | Next.js 16, React 19, TailwindCSS 4 | User interface & dashboard |
+| **Backend** | Express.js, Node.js | API gateway & AI service |
+| **Orchestration** | Kestra | Workflow management & task execution |
+| **AI Engine** | Google Gemini 2.0 Flash | Code fix generation & analysis |
+| **Security Scanners** | Semgrep, Bandit, Gitleaks | Vulnerability detection |
+| **Database** | Supabase (optional) | Persistent storage |
+| **Infrastructure** | Docker, PostgreSQL | Container orchestration |
 
 ---
 
 ## 📁 Project Structure
 
-
+```
 Estas-Ai/
 ├── backend/                    # Express.js API Server
 │   ├── config/
@@ -227,7 +227,7 @@ Estas-Ai/
 │   └── next.config.ts
 │
 └── README.md                   # This file
-
+```
 
 ---
 
@@ -237,19 +237,19 @@ Before setting up Estas-AI, ensure you have:
 
 | Requirement | Version | Purpose |
 |:------------|:--------|:--------|
-| *Node.js* | v18+ | Backend & Frontend runtime |
-| *npm* | v9+ | Package management |
-| *Docker* | v20+ | Kestra container |
-| *Docker Compose* | v2+ | Multi-container orchestration |
-| *Git* | v2+ | Repository operations |
+| **Node.js** | v18+ | Backend & Frontend runtime |
+| **npm** | v9+ | Package management |
+| **Docker** | v20+ | Kestra container |
+| **Docker Compose** | v2+ | Multi-container orchestration |
+| **Git** | v2+ | Repository operations |
 
 ### Required API Keys & Tokens
 
 | Service | How to Get | Required For |
 |:--------|:-----------|:-------------|
-| *GitHub Personal Access Token* | [GitHub Settings → Developer Settings → Personal Access Tokens](https://github.com/settings/tokens) | Repository access, PR creation |
-| *Google Gemini API Key* | [Google AI Studio](https://aistudio.google.com/apikey) | AI fix generation |
-| *Supabase* (Optional) | [Supabase Dashboard](https://supabase.com) | Persistent storage |
+| **GitHub Personal Access Token** | [GitHub Settings → Developer Settings → Personal Access Tokens](https://github.com/settings/tokens) | Repository access, PR creation |
+| **Google Gemini API Key** | [Google AI Studio](https://aistudio.google.com/apikey) | AI fix generation |
+| **Supabase** (Optional) | [Supabase Dashboard](https://supabase.com) | Persistent storage |
 
 #### GitHub Token Permissions Required:
 - repo (Full control of private repositories)
@@ -282,7 +282,7 @@ copy .env.example .env
 
 Edit backend/.env with your configuration:
 
-env
+```env
 # Server Configuration
 NODE_ENV=development
 PORT=3000
@@ -307,7 +307,7 @@ AI_MAX_TOKENS=8192
 
 # Logging
 LOG_LEVEL=info
-
+```
 
 ### 3. Kestra Setup (Docker)
 
@@ -321,7 +321,7 @@ copy .env.example .env
 
 Edit backend/docker/.env:
 
-env
+```env
 # Base64 encode your GitHub token for Kestra secrets
 # On Windows PowerShell:
 # [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("ghp_your_token"))
@@ -329,9 +329,9 @@ env
 # echo -n "ghp_your_token" | base64
 
 SECRET_GITHUB_TOKEN=your_base64_encoded_github_token
+```
 
-
-*Start Kestra:*
+**Start Kestra:**
 
 bash
 # From backend/docker directory
@@ -342,9 +342,9 @@ docker-compose ps
 
 # View logs if needed
 docker-compose logs -f kestra
+```
 
-
-Kestra UI will be available at: *http://localhost:8080*
+Kestra UI will be available at: **http://localhost:8080**
 
 ### 4. Frontend Setup
 
@@ -361,48 +361,49 @@ copy .env.example .env.local
 
 Edit frontend/.env.local:
 
-env
+```env
 NEXT_PUBLIC_API_URL=http://localhost:3000
+```
 
 
 ### 5. Deploy Kestra Workflow
 
 The workflow needs to be deployed to Kestra. You can do this via:
 
-*Option A: Kestra UI*
+**Option A: Kestra UI**
 1. Open http://localhost:8080
 2. Navigate to Flows → Create
 3. Copy contents of backend/workflows/security-scan-flow.yml
 4. Paste and Save
 
-*Option B: Kestra API*
+**Option B: Kestra API**
 bash
 curl -X POST "http://localhost:8080/api/v1/flows" \
   -H "Content-Type: application/x-yaml" \
   --data-binary @backend/workflows/security-scan-flow.yml
-
+```
 
 ### 6. Start the Application
 
-*Terminal 1 - Backend:*
+**Terminal 1 - Backend:**
 bash
 cd backend
 npm run dev
+```
 
-
-*Terminal 2 - Frontend:*
+**Terminal 2 - Frontend:**
 bash
 cd frontend
 npm run dev
-
+```
 
 ### 7. Access the Application
 
 | Service | URL |
 |:--------|:----|
-| *Frontend* | http://localhost:3001 |
-| *Backend API* | http://localhost:3000 |
-| *Kestra UI* | http://localhost:8080 |
+| **Frontend** | http://localhost:3001 |
+| **Backend API** | http://localhost:3000 |
+| **Kestra UI** | http://localhost:8080 |
 
 ---
 
@@ -415,12 +416,12 @@ npm run dev
 | NODE_ENV | No | development | Environment mode |
 | PORT | No | 3000 | Backend server port |
 | HOST | No | 0.0.0.0 | Server host |
-| GITHUB_TOKEN | *Yes* | - | GitHub Personal Access Token |
+| GITHUB_TOKEN | **Yes** | - | GitHub Personal Access Token |
 | GITHUB_API_URL | No | https://api.github.com | GitHub API URL |
-| KESTRA_URL | *Yes* | - | Kestra server URL |
+| KESTRA_URL | **Yes** | - | Kestra server URL |
 | KESTRA_NAMESPACE | No | company.team | Kestra namespace |
 | KESTRA_FLOW_ID | No | security-scan-flow | Kestra workflow ID |
-| AI_API_KEY | *Yes* | - | Google Gemini API key |
+| AI_API_KEY | **Yes** | - | Google Gemini API key |
 | AI_MODEL | No | gemini-2.0-flash-exp | Gemini model to use |
 | AI_MAX_TOKENS | No | 8192 | Max tokens for AI response |
 | SUPABASE_URL | No | - | Supabase project URL |
@@ -431,7 +432,7 @@ npm run dev
 
 | Variable | Required | Default | Description |
 |:---------|:---------|:--------|:------------|
-| NEXT_PUBLIC_API_URL | *Yes* | - | Backend API URL |
+| NEXT_PUBLIC_API_URL | **Yes** | - | Backend API URL |
 
 ---
 
@@ -480,7 +481,7 @@ npm run dev
 
 ### Complete Scan Lifecycle
 
-
+```
 1. USER INITIATES SCAN
    └── Frontend sends POST /api/scan with repoUrl and branch
 
@@ -513,7 +514,7 @@ npm run dev
 
 5. FRONTEND DISPLAYS RESULTS
    └── User sees findings, fixes, and PR link
-
+```
 
 ---
 
@@ -541,21 +542,21 @@ Users can ask the AI about:
 
 ### Example AI Fix
 
-*Vulnerability:* SQL Injection (Bandit B608)
+**Vulnerability:** SQL Injection (Bandit B608)
 
-*Original Code:*
-python
+**Original Code:**
+```python
 def get_user(user_id):
     query = f"SELECT * FROM users WHERE id = '{user_id}'"
     return db.execute(query)
+```
 
-
-*AI-Generated Fix:*
-python
+**AI-Generated Fix:**
+```python
 def get_user(user_id):
     query = "SELECT * FROM users WHERE id = ?"
     return db.execute(query, (user_id,))
-
+```
 
 ---
 
@@ -565,18 +566,18 @@ def get_user(user_id):
 
 #### Kestra Connection Failed
 
-Error: Kestra workflow trigger failed
+**Error:** Kestra workflow trigger failed
 
-*Solution:*
+**Solution:**
 1. Verify Kestra is running: docker-compose ps
 2. Check Kestra logs: docker-compose logs kestra
 3. Ensure KESTRA_URL is correct in .env
 
 #### GitHub Authentication Failed
 
-Error: GitHub authentication failed
+**Error:** GitHub authentication failed
 
-*Solution:*
+**Solution:**
 1. Verify your GitHub token has required permissions
 2. Check token hasn't expired
 3. Ensure token is correctly set in both:
@@ -585,18 +586,18 @@ Error: GitHub authentication failed
 
 #### AI Fix Generation Failed
 
-Error: AI service unavailable
+**Error:** AI service unavailable
 
-*Solution:*
+**Solution:**
 1. Verify AI_API_KEY is valid
 2. Check Google AI Studio for quota limits
 3. Ensure the model name is correct
 
 #### Docker Network Issues
 
-Error: Backend not accessible from Kestra
+**Error:** Backend not accessible from Kestra
 
-*Solution:*
+**Solution:**
 The workflow automatically converts localhost to host.docker.internal for Docker networking. If issues persist:
 1. Ensure Docker Desktop is running
 2. Try restarting Docker
@@ -604,19 +605,19 @@ The workflow automatically converts localhost to host.docker.internal for Docker
 
 ### Viewing Logs
 
-*Backend Logs:*
+**Backend Logs:**
 bash
 # Logs are in backend/logs/ directory
 # Or view console output when running npm run dev
+```
 
-
-*Kestra Logs:*
+**Kestra Logs:**
 bash
 cd backend/docker
 docker-compose logs -f kestra
+```
 
-
-*Workflow Execution Logs:*
+**Workflow Execution Logs:**
 1. Open Kestra UI (http://localhost:8080)
 2. Navigate to Executions
 3. Click on the execution to view detailed logs
