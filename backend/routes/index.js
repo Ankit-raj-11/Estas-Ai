@@ -5,6 +5,7 @@ const healthRoutes = require('./health.routes');
 const scanRoutes = require('./scan.routes');
 const githubRoutes = require('./github.routes');
 const webhookRoutes = require('./webhook.routes');
+const chatRoutes = require('./chat.routes');
 
 /**
  * Mount all routes
@@ -13,5 +14,6 @@ router.use('/health', healthRoutes);
 router.use('/scan', scanRoutes);
 router.use('/github', githubRoutes);
 router.use('/webhooks', webhookRoutes);
+router.use('/chat', chatRoutes);
 
 module.exports = router;

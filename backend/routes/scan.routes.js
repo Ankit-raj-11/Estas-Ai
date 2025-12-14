@@ -10,10 +10,22 @@ const fixController = require('../controllers/fix.controller');
 router.post('/', scanController.initiateScan);
 
 /**
+ * GET /api/scan/all
+ * Gets all scans
+ */
+router.get('/all', scanController.getAllScans);
+
+/**
  * GET /api/scan/:scanId
  * Gets the status of a scan
  */
 router.get('/:scanId', scanController.getScanStatus);
+
+/**
+ * GET /api/scan/:scanId/findings
+ * Gets findings for a scan
+ */
+router.get('/:scanId/findings', scanController.getScanFindings);
 
 /**
  * POST /api/scan/fix
