@@ -27,10 +27,10 @@ const branchNameSchema = Joi.string()
  * Schema for scan ID validation
  */
 const scanIdSchema = Joi.string()
-  .uuid()
+  .pattern(/^scan_\d+_[a-z0-9]+$/)
   .required()
   .messages({
-    'string.guid': 'Scan ID must be a valid UUID'
+    'string.pattern.base': 'Scan ID must be in format: scan_timestamp_randomstring'
   });
 
 /**

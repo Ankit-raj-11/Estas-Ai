@@ -130,6 +130,8 @@ async function getScanStatus(req, res, next) {
       
       res.status(200).json({
         scanId: scan.scanId,
+        repoUrl: scan.repoUrl,
+        branch: scan.branch,
         status: scan.status,
         progress: scan.progress,
         results: scan.results,
@@ -191,9 +193,64 @@ async function getScanFindings(req, res, next) {
   }
 }
 
+/**
+ * Get execution logs for a scan
+ */
+async function getScanLogs(req, res, next) {
+  try {
+    const scanId = validateScanId(req.params.scanId);
+    
+    logger.info(`Getting logs for scan: ${scanId}`);
+    
+    let scan;
+    if (supabaseService.isConfigured()) {
+      scan = await supabaseService.getScan(scanId);
+    } else {
+      scan = storageService.getScan(scanId);
+    }
+    
+    if (!scan) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: `Scan not found: ${scanId}`
+      });
+    }
+    
+    const executionId = scan.kestraExecutionId || scan.results?.executionId;
+    
+    if (!executionId) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'No execution ID found for this scan'
+      });
+    }
+    
+    try {
+      const logs = await kestraService.getExecutionLogs(executionId);
+      
+      res.status(200).json({
+        success: true,
+        scanId,
+        executionId,
+        logs
+      });
+    } catch (error) {
+      logger.error(`Failed to fetch logs from Kestra: ${error.message}`);
+      res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Failed to fetch logs from Kestra',
+        details: error.message
+      });
+    }
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   initiateScan,
   getScanStatus,
   getAllScans,
-  getScanFindings
+  getScanFindings,
+  getScanLogs
 };
